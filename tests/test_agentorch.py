@@ -2559,3 +2559,40 @@ def test_designate_orchestrator_prefers_a_stated_name_over_the_only_agent(projec
 def test_default_team_and_orchestrator_are_named_in_english(project):
     assert project.module.config.DEFAULT_TABS[0]["name"] == "Orchestrator"
     assert project.module.discovery.DEFAULT_ORCHESTRATOR["name"] == "Orchestrator"
+
+
+def test_two_tabs_with_the_same_name_do_not_steal_the_registry(project):
+    """Con dos tabs homónimas, el relevo adopta la que creó, no la ajena."""
+    start_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None),
+                        live_tab("tb99", "Orquestador", "t99", app=None)])
+
+    project.module.start(fresh=True, timeout=0.5, interval=0.01)
+
+    live = [tab["id"] for tab in project.read_state()["spaces"][0]["tabs"]
+            if tab["name"] == "Orquestador"]
+    created = [identifier for identifier in live if identifier not in {"tb1", "tb99"}]
+    assert created, "el fake debería haber creado una tab nueva"
+    entry = project.registry()["herdr"]["tabs"]["orchestrator"]
+    assert entry["tab_id"] == created[0]
+    assert entry["tab_id"] != "tb99"
+
+
+def test_a_failed_create_is_reported_and_the_registry_does_not_lie(project, monkeypatch):
+    """Si `tab.new` falla después de cerrar, el registro no apunta a la tab cerrada."""
+    start_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None)])
+    module = sys.modules[project.module.start.__module__]
+    real = module.run_app
+
+    def explode(args):
+        if args[:2] == ["do", "tab.new"]:
+            raise module.AgentorchError("boom")
+        return real(args)
+
+    monkeypatch.setattr(module, "run_app", explode)
+
+    assert project.module.start(timeout=0.5, interval=0.01) == 1
+    entry = project.registry()["herdr"]["tabs"]["orchestrator"]
+    assert entry["tab_id"] is None
+    assert entry["terminal_id"] is None

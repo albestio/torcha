@@ -39,7 +39,8 @@ def _close_tab(identifier: str) -> None:
 
 
 def _create_tab(key: str, entry: dict, config: dict, space: str,
-                argv: list[str] | None, session_id: str) -> dict | None:
+                argv: list[str] | None, session_id: str,
+                known_ids: set[str] | None = None) -> dict | None:
     """Open the tab with `--argv` and take the ids from `ls`, not from the echo.
 
     No se teclea un programa en un shell: `hc send` envuelve el texto en
@@ -54,22 +55,34 @@ def _create_tab(key: str, entry: dict, config: dict, space: str,
             "--folder", str(project.PROJECT_DIR), "--focus", "false"]
     if argv:
         args += ["--argv", json.dumps(argv)]
-    created = parse_json_output(run_app(args), f"tab.new ({key})")
+    try:
+        created = parse_json_output(run_app(args), f"tab.new ({key})")
+    except AgentorchError:
+        # El llamante decide qué hacer: aquí ya no hay tab que devolver.
+        return None
 
-    # El eco es lo último que se cree: solo si `ls` no llega a enseñar la tab.
+    # Ni el eco ni el nombre bastan por separado: el eco puede mentir y dos tabs
+    # del space pueden llamarse igual. La tab nueva es la que `ls` enseña con
+    # ese nombre y no estaba antes de crearla; los ids que se guardan son los de
+    # `ls`, porque el eco no dice qué pane quedó dentro.
+    announced = first_string(created, "tab", "tab_id", "id")
+    terminal_echo = first_string(created, "terminal", "terminal_id")
     try:
         final_space, _pending = wait_for_apps(space, [name])
     except AgentorchError:
         final_space = None
-    tab = next((t for t in (tabs_of(final_space) if final_space else [])
-                if (tab_name(t) or "") == name), None)
+    named = [t for t in (tabs_of(final_space) if final_space else [])
+             if (tab_name(t) or "") == name]
+    fresh = [t for t in named
+             if not known_ids or (tab_id(t) or "") not in known_ids]
+    tab = (fresh or named or [None])[0]
     if tab is not None:
         ids = extract_tab_ids(tab)
         identifier, terminal = tab_id(tab), ids["terminal_id"]
         pane = ids["pane_id"]
     else:
-        identifier = first_string(created, "tab", "tab_id", "id")
-        terminal = first_string(created, "terminal", "terminal_id")
+        identifier = announced
+        terminal = terminal_echo
         pane = None
     if not identifier or not terminal:
         return None
@@ -78,7 +91,7 @@ def _create_tab(key: str, entry: dict, config: dict, space: str,
 
 
 def _recreate(key: str, entry: dict, config: dict, space: str,
-              fresh: bool = False) -> dict | None:
+              fresh: bool = False, known_ids: set[str] | None = None) -> dict | None:
     """Rebuild a tab that was closed, resuming its session unless `fresh`.
 
     This is the accident path: the tab is gone, so there is nothing to resume in
@@ -89,7 +102,7 @@ def _recreate(key: str, entry: dict, config: dict, space: str,
     session_id = str(uuid.uuid4()) if fresh else (
         entry.get("session_id") or str(uuid.uuid4()))
     argv = pi_argv(config, {"key": key}, session_id)
-    return _create_tab(key, entry, config, space, argv, session_id)
+    return _create_tab(key, entry, config, space, argv, session_id, known_ids)
 
 
 def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
@@ -107,6 +120,10 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
         return 1
 
     entries = (registry.get("herdr") or {}).get("tabs") or {}
+    # Ids que ya existían antes de crear nada: la tab nueva es la que aparece con
+    # ese nombre y no está en este conjunto.
+    known_ids = {tab_id(tab) for tab in tabs_of(space) if tab_id(tab)}
+
     if role is not None and role not in entries:
         note(f"No hay ningún rol {role!r} en el registro.")
         return 1
@@ -128,7 +145,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
                 failed += 1
                 continue
             previous_session = entry.get("session_id")
-            rebuilt = _recreate(key, entry, config, wanted, fresh)
+            rebuilt = _recreate(key, entry, config, wanted, fresh, known_ids)
             if rebuilt is None:
                 note(f"{key}: no se pudo recrear la tab.")
                 failed += 1
@@ -182,8 +199,14 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
             note(f"{key}: no se pudo cerrar la tab {previous_tab}: {exc}")
             failed += 1
             continue
-        rebuilt = _create_tab(key, entry, config, wanted, argv, session_id)
+        rebuilt = _create_tab(key, entry, config, wanted, argv, session_id,
+                              known_ids)
         if rebuilt is None:
+            # La tab anterior ya no existe: el registro no puede seguir
+            # apuntando a ella, o el próximo `start` cerraría una tab ajena.
+            entry.update({"tab_id": None, "terminal_id": None, "pane_id": None,
+                          "pid": None, "app": None, "session_id": None})
+            save_registry(registry)
             note(f"{key}: la tab se cerró y la nueva no se pudo crear.")
             failed += 1
             continue
