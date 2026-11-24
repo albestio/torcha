@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentorch"
+description = "Bootstrap a team of Pi coding agents in Herdr workspaces"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Alberto Linares" }]
+keywords = ["agents", "pi", "herdr", "orchestration", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Build Tools",
+]
+dependencies = []
+dynamic = ["version"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+agentorch = "agentorch.cli:main"
+
+[tool.hatch.version]
+path = "src/agentorch/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentorch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

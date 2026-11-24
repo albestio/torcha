@@ -1,0 +1,56 @@
+# --- Agentorch runtime state (machine-local, rewritten by `agentorch init`) ---
+# The data directory never holds code: it is the shape every target project gets.
+.agentorch/*.py
+.agentorch/registry.json
+.agentorch/last-ls.json
+.agentorch/bootstrap/
+.agentorch/logs/
+.agentorch/state/
+.agentorch/sessions/
+.agentorch/handoffs/
+
+# Atomic-write temporaries created by write_json_atomic()
+*.tmp
+.*.json.*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.whl
+*.tar.gz
+
+# --- Release artifacts stay out of version control ---
+*.zip
+
+# --- Local reference clones kept for study (never committed) ---
+sources/
+
+# --- Local agent tooling caches ---
+.atl/
+
+# --- Editors / OS ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# --- Secrets / local environment ---
+.env
+.env.*
+!.env.example
