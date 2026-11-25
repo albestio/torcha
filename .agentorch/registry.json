@@ -1,0 +1,56 @@
+{
+  "version": "0.3.0",
+  "status": "ready",
+  "project": {
+    "name": "agentorch",
+    "path": "/home/albestio/Code/agentorch"
+  },
+  "herdr": {
+    "space_id": "sp9054c9daa2b9dd2432d46b664029e48f",
+    "tabs": {
+      "orchestrator": {
+        "name": "Orquestador",
+        "tab_id": "tb00016bf463d26badf11a4d08bc9a4980",
+        "terminal_id": "t38",
+        "pane_id": "p451663ad8f102b3bd671919897171c9a",
+        "app": "pi",
+        "pid": 92189
+      },
+      "worker_1": {
+        "name": "Worker 1",
+        "tab_id": "tb8dcf9905b80be6504569b5bef4590f2e",
+        "terminal_id": "t39",
+        "pane_id": "pc9ba627bfc91b9d81bfb87645d626246",
+        "app": null,
+        "pid": null
+      },
+      "worker_2": {
+        "name": "Worker 2",
+        "tab_id": "tb148e324536df66314e4e3d0057c01634",
+        "terminal_id": "t3b",
+        "pane_id": "pb3b0452f51c0f585dd68903a01849676",
+        "app": "pi",
+        "pid": 62634,
+        "session_id": "4e3a6b0a-070e-4572-8eac-79fb44c4903f"
+      },
+      "worker_3": {
+        "name": "Worker 3",
+        "tab_id": "tbcecd0e3bef717cf7ab0b5d7769e2f332",
+        "terminal_id": "t3c",
+        "pane_id": "p48c9fab29ade8b8887af16af2280c208",
+        "app": null,
+        "pid": null
+      },
+      "worker_4": {
+        "name": "Worker 4",
+        "tab_id": "tbed71f4621f5068003f5abec6bf019407",
+        "terminal_id": "t3d",
+        "pane_id": "p000a662c96747e860c19e420cc2cc818",
+        "app": null,
+        "pid": null
+      }
+    }
+  },
+  "updated_at": "2026-11-24T19:47:29.144417+00:00",
+  "error": null
+}

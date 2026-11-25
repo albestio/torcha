@@ -1,9 +1,9 @@
-# agentorch
+# torcha
 
 Bootstrap a team of [Pi](https://pi.dev) coding agents in
 [Herdr](https://github.com/) workspaces.
 
-`agentorch init` prepares a workspace for the project in the current directory:
+`torcha init` prepares a workspace for the project in the current directory:
 it creates or recovers a Herdr space, creates the configured tabs, starts one Pi
 session per tab with a bootstrap prompt, and leaves the focus on the first tab.
 
@@ -36,17 +36,17 @@ uv tool install --editable .
 Then, in any project directory:
 
 ```bash
-agentorch init
+torcha init
 ```
 
 Use `--project <path>` to target another directory instead of the current one.
 
 ## What it creates
 
-Only `.agentorch/` in the target project:
+Only `.torcha/` in the target project:
 
 ```
-.agentorch/
+.torcha/
 ├── agents.json     # the team: one entry per tab (commit this)
 ├── registry.json   # Herdr ids for this machine (do not commit)
 └── bootstrap/      # generated prompts (do not commit)
@@ -61,9 +61,9 @@ that the configuration does not declare is named at the end of every run, after
 the summary, with the role it would add: the key that role name derives and the
 live name verbatim, which is exactly what the skeleton would write. Nothing is
 added to the file, no tab is created for it and the focus does not move; the edit
-is yours. `agentorch init --json` carries the same list, with the tab and
+is yours. `torcha init --json` carries the same list, with the tab and
 terminal ids, for a script. A named tab whose agent is gone is a different
-warning, the one that points at `agentorch start <role> --recreate`, and the tabs
+warning, the one that points at `torcha start <role> --recreate`, and the tabs
 that are never roles — the setup tab, Herdr's bare numeric default and the tab
 running the command — are not reported at all.
 
@@ -82,7 +82,7 @@ running the command — are not reported at all.
 `max_tabs` is the maximum team size and defaults to 10. `init` writes it so it is
 visible, and it can be raised or lowered. When the workspace holds more named tabs
 with a live agent than the limit allows, the ones left out are named on stderr
-instead of disappearing silently. The setup tab (`Agentorch`) and the tab the
+instead of disappearing silently. The setup tab (`Torcha`) and the tab the
 command runs in never count as roles.
 
 `pi.bootstrap` accepts `none`, `greet` or `recover`:
@@ -94,14 +94,14 @@ command runs in never count as roles.
 | `recover` | Engram lookup, handoff, repository inspection, `READY` | several calls |
 
 The mode is not consulted at launch: `init` renders it into
-`.agentorch/bootstrap/<key>.md`, and that file is what `pi` reads as its first
+`.torcha/bootstrap/<key>.md`, and that file is what `pi` reads as its first
 message. The file is therefore authoritative. Editing `agents.json` from `greet`
-to `recover` changes nothing until `agentorch init` renders the file again, so
-`agentorch start` refuses to launch a role whose file does not hold exactly what
+to `recover` changes nothing until `torcha init` renders the file again, so
+`torcha start` refuses to launch a role whose file does not hold exactly what
 the configured mode renders — or is missing — naming the file and the mode it was
 written with, then leaving the tab, the registry and the file untouched.
-`agentorch doctor` reports the same disagreement as a finding without failing a
-healthy project, and `agentorch init` is the way to reconcile it. The swap is the
+`torcha doctor` reports the same disagreement as a finding without failing a
+healthy project, and `torcha init` is the way to reconcile it. The swap is the
 one exception, with a reason: it renders `recover` for the role it is about to
 relaunch, so its file always matches.
 
@@ -109,13 +109,13 @@ The first tab must use `key: "orchestrator"`; it is the one that receives focus.
 
 ## The team skill, loaded everywhere
 
-Every agent `agentorch` launches receives the packaged team skill as well, with
-`--skill <package>/skills/agentorch/SKILL.md`, whatever `pi.bootstrap` says. It
+Every agent `torcha` launches receives the packaged team skill as well, with
+`--skill <package>/skills/torcha/SKILL.md`, whatever `pi.bootstrap` says. It
 teaches the agent what no command can do for it: how to catch up on its own from
 its newest handoff, `git rev-parse HEAD` and Engram, and how to hand over — fill
-the document agentorch created, validate it with `agentorch handoff validate`,
+the document torcha created, validate it with `torcha handoff validate`,
 then ask the human or the orchestrator to run the swap, because neither the swap
-nor `agentorch recover` can target the tab running the command. The path comes
+nor `torcha recover` can target the tab running the command. The path comes
 from the package, so the target project needs nothing. This costs tokens in
 every session, by design: a skill an agent must discover on demand is one it can
 skip. With `pi.bootstrap: "none"` no session is launched, so no skill is loaded
@@ -123,8 +123,8 @@ either.
 
 ## Starting the agents
 
-`agentorch start` brings up the agents of the registered roles that are not
-running. `agentorch start <role>` touches only that role.
+`torcha start` brings up the agents of the registered roles that are not
+running. `torcha start <role>` touches only that role.
 
 When an agent has died but its tab survives, the tab is replaced with
 `tab.new --argv` and the session recorded in the registry is resumed; nothing is
@@ -134,20 +134,20 @@ new one.
 When the tab or its terminal no longer exists, the role is reported as a failure
 and nothing is created — unless `--recreate` is given, which creates the tab
 again with the recorded `session_id` and stores the new ids and pid. Closing a
-tab therefore means parking that role: `agentorch start` will not wake it, and
+tab therefore means parking that role: `torcha start` will not wake it, and
 `--recreate` is how you bring it back without re-adopting the whole project.
 
 A terminal that exists but is running something that is not a shell is never
 closed and never typed into, whatever the flags say: that tab may hold someone
 else's work. The role is reported as a failure.
 
-Every flag of `agentorch start`, what it does on each path and the exit codes are
-in [`docs/cli.md`](docs/cli.md#agentorch-start); the paragraphs above are the
+Every flag of `torcha start`, what it does on each path and the exit codes are
+in [`docs/cli.md`](docs/cli.md#torcha-start); the paragraphs above are the
 workflow those flags implement.
 
 ## Catching a running agent up
 
-`agentorch recover <role>` sends one short catch-up message to that role's
+`torcha recover <role>` sends one short catch-up message to that role's
 running agent: read your newest handoff (the newest file by modification time),
 compare its `git.head` with `git rev-parse HEAD`, treat the working tree as the
 source of truth, look the role up in Engram, and answer with what is done, what
@@ -162,7 +162,7 @@ opened or written; the answer arrives in the agent's own tab. Nothing is sent
 unless the target is that role's own tab: the terminal is looked up in the live
 workspace and must belong to the tab id the registry records for it, and to the
 same name when both sides report one — otherwise the run is refused, says which
-tab it found and asks for `agentorch start <role>`, because delivering one
+tab it found and asks for `torcha start <role>`, because delivering one
 role's handoff path to another agent is worse than not sending. A role with no
 agent and an entry with no terminal are refused the same way, and the terminal
 running the command is refused like the swap's guard. An agent that is mid-turn
@@ -171,21 +171,21 @@ turn, and the run says so.
 
 ## Listing the team
 
-`agentorch ls` answers "does `agents.json` match what is on screen?": one line
+`torcha ls` answers "does `agents.json` match what is on screen?": one line
 per declared role, in declaration order, with its key, name, terminal, state and
 session; then the live tabs that are not in the team; then a summary with the
 declared, adopted and alive counts. A declared role that was never adopted shows
 `not adopted`, which is the case neither `status` nor `discover` can see.
 `ls --json` gives the same data to scripts. It is read-only — it never creates,
 closes, moves or focuses a tab and never writes the registry — and it does not
-replace `agentorch status`, which stays the one that rules on divergence. When
+replace `torcha status`, which stays the one that rules on divergence. When
 the registry or `herdr-app ls` cannot be read it prints what it can, shows `?`
 for the counts it cannot compute and exits non-zero.
 
 ## Asking for a handoff
 
-`agentorch handoff run <role>` asks a running agent to write its handoff. It
-creates the document with the `git` block measured by agentorch, sends `RELEVO`
+`torcha handoff run <role>` asks a running agent to write its handoff. It
+creates the document with the `git` block measured by torcha, sends `RELEVO`
 — a prompt listing every field and the shape each one has — waits for the agent
 to fill it in, and validates the result: the schema, the ids, the secrets scan,
 and the `git.head` against the repository as it is now. A document that declares
@@ -207,9 +207,9 @@ no new document is created and the document is left exactly as written. The run
 states the document's age in words (`reusing the handoff written 2h ago`), so
 reusing something from last week is visible rather than silent.
 
-Every flag of `agentorch handoff run` — including `--all` and `--timeout`, and
+Every flag of `torcha handoff run` — including `--all` and `--timeout`, and
 the combinations the command refuses — is in
-[`docs/cli.md`](docs/cli.md#agentorch-handoff-run); the paragraphs above are the
+[`docs/cli.md`](docs/cli.md#torcha-handoff-run); the paragraphs above are the
 relief this implements.
 
 Reuse is only as good as the document on disk. The `git.head` check is not
@@ -224,7 +224,7 @@ the other thing.
 
 ## Status: what decides a handoff
 
-`agentorch status` still rules on divergence: per registered role it reports
+`torcha status` still rules on divergence: per registered role it reports
 `alive`, `down`, `missing` or `moved`, prints a summary and exits 1 when any role
 is `missing` or `moved`. Those states, that rule, the exit code and `--json` do
 not change. Under each role line it now adds the three facts that decide who
@@ -242,19 +242,19 @@ needs a handoff:
 2 of 2 role(s) alive
 ```
 
-Where each number comes from (`[agentorch] `, which prefixes every line, is
+Where each number comes from (`[torcha] `, which prefixes every line, is
 omitted here):
 
 | Line | Source |
 | --- | --- |
-| `handoff` | The newest file in `.agentorch/handoffs/<key>/` by modification time: its age from `created_at` (the file's mtime when the document has none) and the `git.head` the agent recorded. |
+| `handoff` | The newest file in `.torcha/handoffs/<key>/` by modification time: its age from `created_at` (the file's mtime when the document has none) and the `git.head` the agent recorded. |
 | `drift` | `git rev-list --count <handoff head>..HEAD` and `git status --porcelain`, measured in the project. A head that is no longer an ancestor of `HEAD` — a rebase, a rewritten branch — says so instead of printing a count it cannot count. |
 | `tokens` | The last message of the role's Pi transcript that carries a `usage` block: `usage.totalTokens` with the model name. The transcript is found by its session id under Pi's own session store (`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`), never by a guessed path. |
 | percentage | The window and the percentage come from whichever source can be identified: the role's **own** presence block in its transcript first, otherwise the model's `contextWindow` from Pi's catalogue combined with the last turn's `totalTokens`, otherwise nothing but the tokens and the sentence `no context window known: no percentage`. |
 
 Pi writes, beside each message, the figures its own status bar shows
 (`contextPct`, `contextWindow`, `contextTokens`). That block is the number the
-human already read, so it wins over anything agentorch could divide out — but
+human already read, so it wins over anything torcha could divide out — but
 only when it can be identified as this role's own. A transcript also stores the
 presence blocks of **other** sessions, because an intercom tool result is
 recorded with the sender's block inside it, and taking one of those paints this
@@ -267,7 +267,7 @@ Without a block of its own the catalogue supplies the window —
 `models-store.json` first, then a hand-written `models.json`, keyed by model id
 or name — and `totalTokens` is divided by it. A catalogue entry that is not a
 positive integer is not an answer. When neither source yields a window, the
-tokens appear alone and agentorch does not estimate: `no context window known:
+tokens appear alone and torcha does not estimate: `no context window known:
 no percentage`. A percentage Pi stated without stating the window is still
 shown, as `about 6% of its context window` followed by `the window size is
 unknown`.
@@ -280,9 +280,9 @@ written or sent to an agent. `--json` carries the same fields as `handoff`,
 `commits`, `ancestor`, `dirty`, `dirty_files`, `total_tokens`,
 `context_window`, `percent`) next to the sentence that explains them.
 
-Because `drift` reports what `git status` says, keep agentorch's runtime state out
-of the tree — this repository ignores `.agentorch/handoffs/` and
-`.agentorch/registry.json` — or every role will read as dirty.
+Because `drift` reports what `git status` says, keep torcha's runtime state out
+of the tree — this repository ignores `.torcha/handoffs/` and
+`.torcha/registry.json` — or every role will read as dirty.
 
 ## What it does not do
 

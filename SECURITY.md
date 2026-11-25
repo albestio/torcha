@@ -1,13 +1,13 @@
 # Security policy
 
-## What agentorch touches
+## What torcha touches
 
 Worth knowing before you report something, because the blast radius is unusual
 for a CLI:
 
 - It **executes local binaries** found on `PATH`: `herdr-app` and `hc` for the
   workspace, and `pi` to launch an agent.
-- It **writes inside the project**: `.agentorch/agents.json`, `registry.json`,
+- It **writes inside the project**: `.torcha/agents.json`, `registry.json`,
   the bootstrap prompts, handoff documents and `last-ls.json`.
 - It **reads** the Pi session store under `~/.pi` to report context usage, and
   `models-store.json` for a model's window. Read-only.
@@ -17,7 +17,7 @@ for a CLI:
 
 The last two together are the interesting surface: a handoff document, a
 `README`, or anything an agent reads is untrusted input that can carry
-instructions. agentorch does not sanitise that, and cannot: it treats the working
+instructions. torcha does not sanitise that, and cannot: it treats the working
 tree as the source of truth on purpose. If you run it on a repository you do not
 trust, expect the agents in it to read whatever is there.
 
@@ -30,7 +30,7 @@ there is somewhere private to put them.
 
 Useful in a report:
 
-- the version (`agentorch --version`) and the commit if you are on a branch;
+- the version (`torcha --version`) and the commit if you are on a branch;
 - which command, with which flags, against what kind of workspace;
 - what an attacker gains: a write outside the project, a command executed that
   should not be, a secret disclosed, a tab closed that should not be;
@@ -44,7 +44,7 @@ conversation content and often credentials.
 - An agent doing something unwise after reading an untrusted repository. That is
   the design: the tree is the source of truth. Report it as a documentation
   problem if the risk is not stated clearly where a user would read it.
-- A prompt-injection payload in a handoff document. Same reason: agentorch
+- A prompt-injection payload in a handoff document. Same reason: torcha
   transports documents, it does not vet their content.
 - Anything that requires an attacker who can already write to your project
   directory or your `PATH`.

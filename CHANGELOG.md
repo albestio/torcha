@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to agentorch. The format follows Keep a Changelog and the project
+Notable changes to torcha. The format follows Keep a Changelog and the project
 uses semantic versioning.
 
 ## [0.4.0] - 2026-11-25
@@ -10,12 +10,12 @@ and fixing what they exposed.
 
 ### Added
 
-- `agentorch ls`: the declared team against the live workspace, with `not adopted`
+- `torcha ls`: the declared team against the live workspace, with `not adopted`
   for a role that never entered the registry and the live tabs outside the team
   named; counts summarised in one line.
-- `agentorch recover <role>`: a catch-up sent to a running agent. No tab, no
+- `torcha recover <role>`: a catch-up sent to a running agent. No tab, no
   session id and no handoff touched.
-- `agentorch status`, per role: the newest handoff and its age, the drift against
+- `torcha status`, per role: the newest handoff and its age, the drift against
   the repository (commits since that head, rewritten branch, dirty tree) and the
   tokens of its last turn, with a context percentage only when a real window can
   be resolved.
@@ -32,9 +32,9 @@ and fixing what they exposed.
 - Every message, help text and prompt is in English.
 - The team limit is 10 and configurable as `max_tabs`; the setup tab and the tab
   running the command are never roles, and a tab the limit cuts is named.
-- `agentorch start` refuses a bootstrap file that disagrees with `pi.bootstrap`
+- `torcha start` refuses a bootstrap file that disagrees with `pi.bootstrap`
   and points at `init`; `doctor` reports the same disagreement.
-- `agentorch init` names the live tabs outside the team and the role it would add,
+- `torcha init` names the live tabs outside the team and the role it would add,
   writing nothing.
 - Closing a tab parks a role: `start` does not recreate it without `--recreate`.
 

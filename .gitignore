@@ -1,13 +1,13 @@
-# --- Agentorch runtime state (machine-local, rewritten by `agentorch init`) ---
+# --- Torcha runtime state (machine-local, rewritten by `torcha init`) ---
 # The data directory never holds code: it is the shape every target project gets.
-.agentorch/*.py
-.agentorch/registry.json
-.agentorch/last-ls.json
-.agentorch/bootstrap/
-.agentorch/logs/
-.agentorch/state/
-.agentorch/sessions/
-.agentorch/handoffs/
+.torcha/*.py
+.torcha/registry.json
+.torcha/last-ls.json
+.torcha/bootstrap/
+.torcha/logs/
+.torcha/state/
+.torcha/sessions/
+.torcha/handoffs/
 
 # Atomic-write temporaries created by write_json_atomic()
 *.tmp

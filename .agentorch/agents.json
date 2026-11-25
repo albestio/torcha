@@ -1,0 +1,33 @@
+{
+  "pi": {
+    "executable": "pi",
+    "bootstrap": "greet"
+  },
+  "tabs": [
+    {
+      "key": "orchestrator",
+      "name": "Orquestador",
+      "role": "Coordina al equipo, reparte el trabajo y verifica los resultados."
+    },
+    {
+      "key": "worker_1",
+      "name": "Worker 1",
+      "role": "Investigación y exploración del código."
+    },
+    {
+      "key": "worker_2",
+      "name": "Worker 2",
+      "role": "Implementación de cambios."
+    },
+    {
+      "key": "worker_3",
+      "name": "Worker 3",
+      "role": "Revisión y auditoría de calidad."
+    },
+    {
+      "key": "worker_4",
+      "name": "Worker 4",
+      "role": "Pruebas y verificación funcional."
+    }
+  ]
+}

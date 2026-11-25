@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: A behaviour agentorch does not have yet
+about: A behaviour torcha does not have yet
 labels: enhancement
 ---
 

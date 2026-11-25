@@ -1,36 +1,36 @@
-# agentorch command line reference
+# torcha command line reference
 
 What exactly you can type, what each thing does, and what each command exits
 with. The README explains *why* and *when*; this file is the *what*.
 
-It is not hand-maintained prose alone: `tests/test_agentorch.py` builds every
-parser `agentorch.cli` defines — the top-level one and each subcommand's — and
+It is not hand-maintained prose alone: `tests/test_torcha.py` builds every
+parser `torcha.cli` defines — the top-level one and each subcommand's — and
 fails, naming the option, when a flag, a positional or a subcommand exists in the
 code and not here, or here and not in the code. A command added to the parser
 without a section below is a red test, not a stale document.
 
 ## Conventions
 
-- Every line of normal output starts with `[agentorch] ` and goes to stdout.
+- Every line of normal output starts with `[torcha] ` and goes to stdout.
 - Messages for the human — warnings and refusals — go to stderr with the same
   prefix, so stdout stays readable by a script.
-- A failure caught by agentorch prints `[agentorch] ERROR: <reason>` to stderr.
+- A failure caught by torcha prints `[torcha] ERROR: <reason>` to stderr.
 - Every command accepts `-h` / `--help`, which prints its own help and exits 0.
   Those two are therefore not repeated in the tables below.
 - Exit code **2** is argparse's own: an unknown flag, an unknown subcommand, a
   missing required argument or a malformed value. The message goes to stderr and
   nothing is executed.
 - Exit code **1** is a refusal or a failed run; what went wrong is on stderr, as
-  a `note` line or as `[agentorch] ERROR: <reason>`. Exit code **0** is success.
+  a `note` line or as `[torcha] ERROR: <reason>`. Exit code **0** is success.
 
 ## Shared options
 
 ### `--project PATH`
 
 Every command line accepts it, either at the top level or at its own level:
-`agentorch --project PATH <command>` and `agentorch <command> --project PATH` are
+`torcha --project PATH <command>` and `torcha <command> --project PATH` are
 the same thing. It decides which project is acted on — the directory holding
-`.agentorch/` — and defaults to the current directory. The path must already
+`.torcha/` — and defaults to the current directory. The path must already
 exist; a directory that does not raises
 `The project directory does not exist: <path>` and exit 1, before anything else
 happens.
@@ -38,8 +38,8 @@ happens.
 The parsers declare it with argparse's `SUPPRESS` default, so a `--project`
 given at one level is not overwritten by a level that omits it.
 
-`agentorch handoff` is a group: `--project` belongs to it and must come **before**
-the subcommand (`agentorch handoff --project PATH run <role>`). `handoff run` and
+`torcha handoff` is a group: `--project` belongs to it and must come **before**
+the subcommand (`torcha handoff --project PATH run <role>`). `handoff run` and
 `handoff validate` define no `--project` of their own, so putting it after them
 is a usage error, exit 2.
 
@@ -48,26 +48,26 @@ is a usage error, exit 2.
 Where it exists it prints one JSON object on stdout, with nothing else on
 stdout; human-facing notes still go to stderr. It exists on `init`, `discover`,
 `status`, `ls`, `doctor`, `templates` and `handoff validate`. It is not a global
-flag — `agentorch start --json` and `agentorch handoff run --json` are usage
+flag — `torcha start --json` and `torcha handoff run --json` are usage
 errors. `init` is the one command whose normal output is a narration of what it
 did rather than a report, so with `--json` that narration moves to stderr and the
 object is left alone on stdout. The exit code does not change with `--json`.
 
-## `agentorch`
+## `torcha`
 
 The entry point. It takes the shared options, validates `--project`, and
 dispatches to one subcommand; with no subcommand at all it prints the same help
 `--help` prints; it never runs a command of its own.
 
 ```text
-usage: agentorch [-h] [--version] [--project PATH] {init,discover,status,ls,doctor,start,recover,rename,templates,handoff} ...
+usage: torcha [-h] [--version] [--project PATH] {init,discover,status,ls,doctor,start,recover,rename,templates,handoff} ...
 ```
 
 ### Arguments and options
 
 | Name | What it does |
 | --- | --- |
-| `--version` | Print `Agentorch <version>` on stdout and exit 0. |
+| `--version` | Print `Torcha <version>` on stdout and exit 0. |
 | `--project` | `--project PATH`, the project directory to act on; the current one by default. Shared by every command (see above). |
 
 ### Exit codes
@@ -78,7 +78,7 @@ usage: agentorch [-h] [--version] [--project PATH] {init,discover,status,ls,doct
 | 1 | `--project` points at something that is not an existing directory. |
 | 2 | Usage error. |
 
-## `agentorch init`
+## `torcha init`
 
 Create or recover the project's Herdr space, write a default `agents.json` when
 there is none, optionally open the setup interview in the current terminal, create
@@ -90,13 +90,13 @@ summary, with the role `init` would add for it: the key the role name derives an
 the live name verbatim, which is what the skeleton would write. Nothing is added
 to `agents.json`, no tab is created for it and the focus does not move: the file
 is left for you to edit. A named tab with no agent is a different message from the
-same run, the one that points at `agentorch start <role> --recreate`; the setup
+same run, the one that points at `torcha start <role> --recreate`; the setup
 tab, a tab Herdr still names after its number and the tab running the command are
 never reported, and a workspace whose tabs all belong to the team says nothing
 extra.
 
 ```text
-usage: agentorch init [-h] [--plain] [--json] [--project PATH]
+usage: torcha init [-h] [--plain] [--json] [--project PATH]
 ```
 
 ### Arguments and options
@@ -115,13 +115,13 @@ usage: agentorch init [-h] [--plain] [--json] [--project PATH]
 | 1 | A precondition failed (not a git repository and the input is not interactive, `git` or `herdr-app` not on PATH), Herdr refused a step, the configuration is invalid, or the interview closed leaving roles unfilled — in that last case nothing is applied. |
 | 2 | Usage error. |
 
-## `agentorch discover`
+## `torcha discover`
 
 Report what the project already declares and, optionally, what the live workspace
 already runs, then print a proposed `agents.json`.
 
 ```text
-usage: agentorch discover [-h] [--project PATH] [--live] [--json]
+usage: torcha discover [-h] [--project PATH] [--live] [--json]
 ```
 
 ### Arguments and options
@@ -140,13 +140,13 @@ usage: agentorch discover [-h] [--project PATH] [--live] [--json]
 | 1 | The workspace or the configuration could not be read (`herdr-app ls` failed, `max_tabs` is invalid). |
 | 2 | Usage error. |
 
-## `agentorch status`
+## `torcha status`
 
 Compare the registry with what Herdr reports now, and add per role the newest
 handoff, the drift since it, and the tokens the role's last turn used.
 
 ```text
-usage: agentorch status [-h] [--project PATH] [--json]
+usage: torcha status [-h] [--project PATH] [--json]
 ```
 
 ### Arguments and options
@@ -164,13 +164,13 @@ usage: agentorch status [-h] [--project PATH] [--json]
 | 1 | At least one role is `missing` or `moved` — the registry no longer describes reality — or the registry or the live workspace could not be read. |
 | 2 | Usage error. |
 
-## `agentorch ls`
+## `torcha ls`
 
 List one line per role declared in `agents.json` against the live workspace, then
 the live tabs outside the team, then the declared, adopted and alive counts.
 
 ```text
-usage: agentorch ls [-h] [--project PATH] [--json]
+usage: torcha ls [-h] [--project PATH] [--json]
 ```
 
 ### Arguments and options
@@ -188,14 +188,14 @@ usage: agentorch ls [-h] [--project PATH] [--json]
 | 1 | The registry or `herdr-app ls` could not be read; the report is still printed with `?` where a count cannot be computed, and the reason is named on stderr. Also 1 when `agents.json` is invalid. |
 | 2 | Usage error. |
 
-## `agentorch doctor`
+## `torcha doctor`
 
-Check the preconditions agentorch needs — interpreter, `git`, repository,
+Check the preconditions torcha needs — interpreter, `git`, repository,
 `herdr-app`, `hc`, configuration, `pi`, the bootstrap files, registry,
 writability — and report. It changes nothing.
 
 ```text
-usage: agentorch doctor [-h] [--project PATH] [--json]
+usage: torcha doctor [-h] [--project PATH] [--json]
 ```
 
 ### Arguments and options
@@ -205,11 +205,11 @@ usage: agentorch doctor [-h] [--project PATH] [--json]
 | `--project` | `--project PATH`, the project directory to act on; the current one by default. Shared by every command (see above). |
 | `--json` | Print `checks` (each with `name`, `state`, `detail`) and a `summary` with the failing and warning check names. |
 
-The `bootstrap` check compares each role's `.agentorch/bootstrap/<key>.md` with
+The `bootstrap` check compares each role's `.torcha/bootstrap/<key>.md` with
 what `pi.bootstrap` renders and names the role and the file when they disagree —
-the same disagreement that makes `agentorch start` refuse the launch. It is a
+the same disagreement that makes `torcha start` refuse the launch. It is a
 `warn`, never a `fail`: the report does not change the exit code of a project
-that is otherwise healthy, and `agentorch init` is what reconciles the files. A
+that is otherwise healthy, and `torcha init` is what reconciles the files. A
 project where no bootstrap file has been written yet is not reported.
 
 ### Exit codes
@@ -220,14 +220,14 @@ project where no bootstrap file has been written yet is not reported.
 | 1 | At least one check is `fail`. |
 | 2 | Usage error. |
 
-## `agentorch start`
+## `torcha start`
 
 Start the agents of the registered roles that are not running, closing and
 recreating a role's tab when its terminal has no agent, and never typing a
 command string into a shell.
 
 ```text
-usage: agentorch start [-h] [--project PATH] [--fresh] [--recreate] [role]
+usage: torcha start [-h] [--project PATH] [--fresh] [--recreate] [role]
 ```
 
 ### Arguments and options
@@ -242,7 +242,7 @@ usage: agentorch start [-h] [--project PATH] [--fresh] [--recreate] [role]
 Both paths that launch compare the prompt on disk with what `pi.bootstrap`
 renders: a role whose file holds another mode's text, or has no file at all, is
 refused — naming the file and the mode it was written with — and nothing is
-closed, created or written. `agentorch init` reconciles the file; with
+closed, created or written. `torcha init` reconciles the file; with
 `pi.bootstrap: "none"` no session is launched, so nothing is compared.
 
 ### Exit codes
@@ -253,13 +253,13 @@ closed, created or written. `agentorch init` reconciles the file; with
 | 1 | At least one role failed: a tab or terminal missing without `--recreate`, a terminal that is not a shell, a bootstrap file that does not hold the configured mode, a tab that could not be created, an agent that did not appear in time, a role that is not in the registry, a space the registry names but Herdr no longer has, or a live workspace that could not be read at all. |
 | 2 | Usage error. |
 
-## `agentorch recover`
+## `torcha recover`
 
 Send one catch-up message to a role's running agent and return, without touching
 the tab, the session id, the registry or any handoff.
 
 ```text
-usage: agentorch recover [-h] [--project PATH] role
+usage: torcha recover [-h] [--project PATH] role
 ```
 
 ### Arguments and options
@@ -277,12 +277,12 @@ usage: agentorch recover [-h] [--project PATH] role
 | 1 | Nothing was sent: the role is not in the registry, the entry has no terminal, no agent is running there, the terminal is not in the tab the registry records for the role, the terminal is the one running this command, or herdr-core refused the send. |
 | 2 | Usage error, including the missing `role`. |
 
-## `agentorch rename`
+## `torcha rename`
 
 Rename a role's tab in Herdr and record the new name in the registry.
 
 ```text
-usage: agentorch rename [-h] [--project PATH] role name
+usage: torcha rename [-h] [--project PATH] role name
 ```
 
 ### Arguments and options
@@ -301,12 +301,12 @@ usage: agentorch rename [-h] [--project PATH] role name
 | 1 | The name is empty, the role is not in the registry, the entry has no `tab_id`, the tab no longer exists, or `herdr-app` could not be read or refused the rename. |
 | 2 | Usage error, including a missing `role` or `name`. |
 
-## `agentorch templates`
+## `torcha templates`
 
 List the team templates bundled with the package.
 
 ```text
-usage: agentorch templates [-h] [--project PATH] [--json]
+usage: torcha templates [-h] [--project PATH] [--json]
 ```
 
 ### Arguments and options
@@ -324,13 +324,13 @@ usage: agentorch templates [-h] [--project PATH] [--json]
 | 1 | No template is available at all. |
 | 2 | Usage error. |
 
-## `agentorch handoff`
+## `torcha handoff`
 
 The group for handoff documents. On its own it prints the help of its
 subcommands and does nothing else.
 
 ```text
-usage: agentorch handoff [-h] [--project PATH] {run,validate} ...
+usage: torcha handoff [-h] [--project PATH] {run,validate} ...
 ```
 
 ### Arguments and options
@@ -347,13 +347,13 @@ usage: agentorch handoff [-h] [--project PATH] {run,validate} ...
 | 1 | `--project` points at something that is not an existing directory. |
 | 2 | Usage error, including an unknown subcommand or a `--project` placed after `run` or `validate`. |
 
-## `agentorch handoff run`
+## `torcha handoff run`
 
 Ask a running agent to write its handoff, validate the result against the schema
 and the repository, and optionally replace the session with it.
 
 ```text
-usage: agentorch handoff run [-h] [--all] [--swap] [--use-existing] [--timeout TIMEOUT] [--force] [role]
+usage: torcha handoff run [-h] [--all] [--swap] [--use-existing] [--timeout TIMEOUT] [--force] [role]
 ```
 
 ### Arguments and options
@@ -375,13 +375,13 @@ usage: agentorch handoff run [-h] [--all] [--swap] [--use-existing] [--timeout T
 | 1 | A flag combination the command refuses (`--use-existing` without `--swap`, `--use-existing` with `--force`, `--all` with a role, neither of them), a role that is not in the registry, a document that did not validate or whose `git.head` no longer matches the repository, or a swap that failed. |
 | 2 | Usage error. |
 
-## `agentorch handoff validate`
+## `torcha handoff validate`
 
 Validate one handoff document on disk: the schema, the ids, the secrets scan and,
 on request, `git.head` against the current commit.
 
 ```text
-usage: agentorch handoff validate [-h] [--json] [--check-head] path
+usage: torcha handoff validate [-h] [--json] [--check-head] path
 ```
 
 ### Arguments and options

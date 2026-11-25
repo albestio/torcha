@@ -1,0 +1,24 @@
+{
+  "tabs": [
+    {
+      "key": "orchestrator",
+      "name": "Orquestador"
+    },
+    {
+      "key": "worker_1",
+      "name": "Worker 1"
+    },
+    {
+      "key": "worker_2",
+      "name": "Worker 2"
+    },
+    {
+      "key": "worker_3",
+      "name": "Worker 3"
+    },
+    {
+      "key": "worker_4",
+      "name": "Worker 4"
+    }
+  ]
+}

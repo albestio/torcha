@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Something agentorch did that it should not have done
+about: Something torcha did that it should not have done
 labels: bug
 ---
 
@@ -9,14 +9,14 @@ labels: bug
 <!-- The exact command, and the output. Trim what does not matter, keep the error. -->
 
 ```
-$ agentorch …
+$ torcha …
 ```
 
 ## What you expected
 
 ## How to reproduce
 
-- Version: `agentorch --version`
+- Version: `torcha --version`
 - Platform: OS and Python version
 - Does it involve a real workspace? Which of `herdr-app`, `hc`, `pi` were present?
 - If you can reproduce it without your workspace, say how. A fake or a

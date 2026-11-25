@@ -5,7 +5,7 @@ wasting your time.
 
 ## What this is
 
-`agentorch` adopts a team of coding agents that already live in Herdr tabs,
+`torcha` adopts a team of coding agents that already live in Herdr tabs,
 writes down who they are, and lets them hand over to a successor without losing
 what they knew. It shells out to `herdr-app` and `hc`; it never talks to a model
 itself.
@@ -20,8 +20,8 @@ itself.
 ## Development setup
 
 ```bash
-git clone <this repository> && cd agentorch
-uv tool install --editable . --force   # installs the `agentorch` command from your tree
+git clone <this repository> && cd torcha
+uv tool install --editable . --force   # installs the `torcha` command from your tree
 # or, without uv:
 python -m pip install -e ".[test]"
 ```
@@ -40,7 +40,7 @@ python -m pytest -q
 ```
 
 The suite is hermetic. It runs every command against a fake `herdr-app` and `hc`
-built inside `tests/test_agentorch.py`, so it needs no workspace, no terminal and
+built inside `tests/test_torcha.py`, so it needs no workspace, no terminal and
 no network. A test that needs a real binary must **skip** when it is missing,
 never fail: someone cloning this repository on a fresh machine must get a green
 run.
@@ -58,7 +58,7 @@ Two exceptions worth knowing:
 
 - **Tests first** for a behaviour change: one failing test per rule, then the
   fix. A change that only moves text around says so and still runs the suite.
-- **A documented option**: `agentorch` has a test that fails when a parser
+- **A documented option**: `torcha` has a test that fails when a parser
   option is not in `docs/cli.md`. Add the row or the suite will tell you.
 - **The changelog**: `CHANGELOG.md` has an entry per release, grouped by added,
   changed and fixed. Add your line under the unreleased heading if there is one.
@@ -72,11 +72,11 @@ Two exceptions worth knowing:
 
 | Path | What |
 | --- | --- |
-| `src/agentorch/` | the package; one module per concern, `commands/` per command |
-| `src/agentorch/skills/` | the two prompts packaged with the tool: the setup interview and the team skill every agent loads |
-| `tests/test_agentorch.py` | the whole suite, including the fake Herdr |
+| `src/torcha/` | the package; one module per concern, `commands/` per command |
+| `src/torcha/skills/` | the two prompts packaged with the tool: the setup interview and the team skill every agent loads |
+| `tests/test_torcha.py` | the whole suite, including the fake Herdr |
 | `docs/cli.md` | every command, option and exit code |
-| `odd/tasks/agentorch-improvements.md` | the feature document: specs, tasks with the commit that holds each, and a log of decisions and field bugs |
+| `odd/tasks/torcha-improvements.md` | the feature document: specs, tasks with the commit that holds each, and a log of decisions and field bugs |
 
 ## Proposing something bigger
 
@@ -85,6 +85,6 @@ meaning, the shape of `agents.json` or `registry.json`, what a prompt asks an
 agent to do. Those are cheap to discuss and expensive to undo.
 
 For a bug, the most useful report says what you ran, what happened, what you
-expected, and the output of `agentorch --version` and `agentorch doctor`. Never
+expected, and the output of `torcha --version` and `torcha doctor`. Never
 paste a handoff document or a session transcript without reading it first: they
 carry whatever was in the conversation.
