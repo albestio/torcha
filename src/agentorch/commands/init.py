@@ -8,6 +8,7 @@ import sys
 import uuid
 
 from .. import __version__ as VERSION
+from dataclasses import dataclass
 from pathlib import Path
 
 from .. import project
@@ -103,6 +104,12 @@ def proposed_sessions() -> dict[str, str]:
     return result
 
 
+def _pending_keys(tabs: list) -> list[str]:
+    """Keys whose `role` is still empty: the one rule for "still to be written"."""
+    return [str(tab.get("key")) for tab in tabs
+            if isinstance(tab, dict) and not str(tab.get("role") or "").strip()]
+
+
 def unfilled_roles() -> list[str]:
     """Keys whose role is still empty. Reads the raw file: load_config() falls
 
@@ -117,11 +124,24 @@ def unfilled_roles() -> list[str]:
     tabs = data.get("tabs") if isinstance(data, dict) else None
     if not isinstance(tabs, list):
         return []
-    return [str(tab.get("key")) for tab in tabs
-            if isinstance(tab, dict) and not str(tab.get("role") or "").strip()]
+    return _pending_keys(tabs)
 
 
-def _interview_prompt(skeleton: list[dict[str, str]], payload: dict) -> str:
+@dataclass(frozen=True)
+class Interview:
+    """What the setup session did in the pane this run put it in.
+
+    `ran` is reported by the interview itself, not inferred by the caller from
+    the fact that it was asked for: while a Pi session holds that pane the focus
+    belongs to it, so `init` must not move the view away when it exits.
+    """
+
+    ran: bool = False
+    pending: tuple[str, ...] = ()
+
+
+def _interview_prompt(skeleton: list[dict[str, str]], payload: dict,
+                      pending: list[str] | None = None) -> str:
     """The project-specific data; the procedure lives in the setup skill."""
     live = {tab.get("name"): tab for tab in payload.get("tabs") or []}
     lines = [
@@ -140,12 +160,25 @@ def _interview_prompt(skeleton: list[dict[str, str]], payload: dict) -> str:
                      f"`{entry.get('tab_id') or '?'}` | "
                      f"`{entry.get('terminal_id') or '?'}` | "
                      f"{entry.get('app') or '—'} | {entry.get('status') or '—'} |")
-    lines += [
-        "",
-        "Every `role` and `instructions` is empty. Fill them from what each agent",
-        "tells you, following the setup skill. Do not touch keys, names or order.",
-        "",
-    ]
+    pending_keys = _pending_keys(skeleton) if pending is None else list(pending)
+    listed = ", ".join(f"`{key}`" for key in pending_keys) or "none"
+    lines += [""]
+    if len(pending_keys) < len(skeleton):
+        # Parte del equipo ya está escrito: la entrevista es solo sobre lo que
+        # falta, y las roles que ya escribió su agente no se tocan.
+        lines += [
+            f"The interview covers only these roles, which are still empty: {listed}.",
+            "The other roles in the table are already written by their agents: do not",
+            "touch or rewrite them. Fill the pending `role` and `instructions` from",
+            "what each of those agents tells you, following the setup skill.",
+            "Do not touch keys, names or order.",
+        ]
+    else:
+        lines += [
+            "Every `role` and `instructions` is empty. Fill them from what each agent",
+            "tells you, following the setup skill. Do not touch keys, names or order.",
+        ]
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -190,11 +223,11 @@ def _run_interview(path: Path, executable: str) -> int:
     return subprocess.run(command, cwd=project.PROJECT_DIR, check=False).returncode
 
 
-def start_interview(candidates) -> bool:
-    """Hand the setup to a Pi session. True when it produced a config."""
+def start_interview(candidates) -> Interview:
+    """Hand the setup to a Pi session. The report says whether it took this pane."""
     payload, live_tabs = live_payload(candidates)
     if not payload.get("tabs"):
-        return False
+        return Interview(pending=tuple(unfilled_roles()))
     # Solo las tabs que son roles. Una tab suelta del space (la que el usuario
     # abre para lanzar init) no lo es, y tratarla como tal impedía renombrarla.
     team_tab_ids = {tab.tab_id for tab in role_tabs(live_tabs) if tab.tab_id}
@@ -215,13 +248,15 @@ def start_interview(candidates) -> bool:
         tabs = skeleton_from_live(live_tabs, max_tabs=configured_max_tabs(),
                                   own_tab_id=own_tab_id)
         if not tabs:
-            return False
+            return Interview(pending=tuple(unfilled_roles()))
         write_default_config(tabs)
         log(f"Configuration skeleton created: {project.CONFIG_FILE}")
     skeleton_tabs = json.loads(
         project.CONFIG_FILE.read_text(encoding="utf-8")).get("tabs") or []
+    pending = _pending_keys(skeleton_tabs)
     path = directory / "interview.md"
-    path.write_text(_interview_prompt(skeleton_tabs, payload), encoding="utf-8")
+    path.write_text(_interview_prompt(skeleton_tabs, payload, pending),
+                    encoding="utf-8")
     executable = "pi"
     try:
         executable = load_config_default_executable()
@@ -230,7 +265,7 @@ def start_interview(candidates) -> bool:
     from shutil import which
     if which(executable) is None:
         note(f"'{executable}' is not on PATH: the interview cannot be opened.")
-        return False
+        return Interview(pending=tuple(pending))
 
     _mark_setup_tab(own_tab, team_tab_ids)
 
@@ -240,8 +275,7 @@ def start_interview(candidates) -> bool:
     if pending:
         note(f"The interview closed (code {code}) without filling in: "
              f"{', '.join(pending)}")
-        return False
-    return True
+    return Interview(ran=True, pending=tuple(pending))
 
 
 def load_config_default_executable() -> str:
@@ -267,11 +301,12 @@ def init(plain: bool = False) -> int:
         raise AgentorchError("'herdr-app' is not on PATH.")
     candidates = scan(project.PROJECT_DIR, scope="project")
     interviewed_sessions = proposed_sessions()
+    interviewed = Interview()
     pending = unfilled_roles()
     if (not project.CONFIG_FILE.exists() or pending) and not plain \
             and sys.stdin.isatty() and sys.stdout.isatty():
-        start_interview(candidates)
-        pending = unfilled_roles()
+        interviewed = start_interview(candidates)
+        pending = list(interviewed.pending)
         # La entrevista acaba de escribir las propuestas: hay que releerlas.
         interviewed_sessions = proposed_sessions()
 
@@ -423,7 +458,9 @@ def init(plain: bool = False) -> int:
                 f"pane={ids['pane_id']}, app={app}, pid={pid}")
 
         # 6. Dejar el foco en la primera tab configurada (tabs[0]) y devolverla a
-        #    la posición 1 si Herdr la hubiera recreado al final.
+        #    la posición 1 si Herdr la hubiera recreado al final. Salvo que esta
+        #    ejecución haya abierto la entrevista: esa tab es la que el humano
+        #    está mirando, y al cerrar su Pi quiere seguir leyendo estos logs.
         orchestrator = tabs_config[0]
         orchestrator_tab = registry["herdr"]["tabs"][orchestrator["key"]]["tab_id"]
         ordered = [tab_id(t) for t in tabs_of(final_space)]
@@ -431,9 +468,14 @@ def init(plain: bool = False) -> int:
             position = ordered.index(orchestrator_tab) + 1
             run_app(["do", "tab.move", "--id", orchestrator_tab, "--index", "1"])
             log(f"Orchestrator moved from position {position} to 1")
-        run_app(["do", "space.select", "--id", sid])
-        run_app(["do", "tab.select", "--id", orchestrator_tab])
-        log(f"Focus on {orchestrator['name']} ({orchestrator_tab})")
+        if interviewed.ran:
+            log(f"Orchestrator: {orchestrator['name']} ({orchestrator_tab}).")
+            log("The logs of this run stay in this tab: the focus is not moved "
+                "after the interview.")
+        else:
+            run_app(["do", "space.select", "--id", sid])
+            run_app(["do", "tab.select", "--id", orchestrator_tab])
+            log(f"Focus on {orchestrator['name']} ({orchestrator_tab})")
 
         registry["status"] = "ready"
         registry["error"] = None

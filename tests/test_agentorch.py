@@ -629,6 +629,52 @@ def test_init_waits_for_the_application_to_report_itself(project):
     assert project.registry()["herdr"]["tabs"]["orchestrator"]["app"] == "pi"
 
 
+def test_an_interview_keeps_the_focus_and_the_logs_in_this_tab(project, monkeypatch,
+                                                              capsys):
+    """Closing the interview's Pi must not jump away from agentorch's logs."""
+    (project.root / ".agentorch/agents.json").unlink()
+    monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
+
+    def fake_interview(candidates):
+        (project.root / ".agentorch/agents.json").write_text(json.dumps({
+            "pi": {"executable": "pi", "bootstrap": "greet"},
+            "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                      "role": "Coordinates.", "instructions": ""}]}))
+        return project.module.init_module.Interview(ran=True)
+
+    monkeypatch.setattr(project.module.init_module, "start_interview", fake_interview)
+
+    assert project.module.init() == 0
+
+    # La entrevista ocupó esta tab: el foco no se mueve a la del orquestador.
+    assert project.options_for("space.select") == []
+    assert project.options_for("tab.select") == []
+    out = capsys.readouterr().out
+    tid = project.registry()["herdr"]["tabs"]["orchestrator"]["tab_id"]
+    assert f"Orchestrator: Orquestador ({tid})." in out
+    assert "stay in this tab" in out
+
+
+def test_a_configuration_with_nothing_pending_still_focuses_the_orchestrator(
+        project, monkeypatch):
+    """The focus is deliberate feedback for a manual run: keep it."""
+    monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
+    called = {}
+    monkeypatch.setattr(project.module.init_module, "start_interview",
+                        lambda candidates: called.setdefault("ran", True))
+
+    assert project.module.init() == 0
+
+    assert "ran" not in called
+    space = project.read_state()["spaces"][0]
+    selected = [options["id"] for options in project.options_for("tab.select")]
+    assert selected == [space["tabs"][0]["id"]]
+    assert [options["id"] for options in project.options_for("space.select")] == \
+        [space["id"]]
+
+
 def test_init_moves_the_orchestrator_to_the_first_position(project):
     # A space already exists with the four workers, but no orchestrator.
     workers = [dict(tab, key=tab["key"]) for tab in TABS[1:]]
@@ -1483,6 +1529,56 @@ def test_the_interview_prompt_carries_the_skeleton_keys(project):
     assert "intercom list-cwd" not in text
 
 
+def test_the_interview_prompt_covers_only_the_pending_roles(project, monkeypatch):
+    """career-ops: one empty role among five written ones must be the whole list."""
+    (project.root / ".agentorch/agents.json").write_text(json.dumps({
+        "pi": {"executable": "pi", "bootstrap": "greet"},
+        "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                  "role": "Coordinates the team.", "instructions": "- a"},
+                 {"key": "coach", "name": "Coach",
+                  "role": "", "instructions": ""}]}))
+    folder = str(project.root)
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": folder, "active": True,
+        "tabs": [role_tab(1, "Orquestador", folder),
+                 role_tab(2, "Coach", folder)]}], "calls": []}))
+    monkeypatch.setattr(project.module.init_module, "_run_interview",
+                        lambda path, exe: 0)
+
+    project.module.init_module.start_interview([])
+
+    text = (project.root / ".agentorch/interview.md").read_text()
+    # El sujeto de la entrevista es la única role pendiente, y se dice cuál es.
+    assert "The interview covers only these roles, which are still empty: `coach`." \
+        in text
+    assert "already written by their agents" in text
+    assert "touch or rewrite them" in text
+    # Y no se afirma que todas estén vacías, porque no lo están.
+    assert "Every `role` and `instructions` is empty" not in text
+
+
+def test_a_first_time_seed_keeps_the_original_interview_wording(project):
+    skeleton = [{"key": "orchestrator", "name": "Orquestador", "role": ""},
+                {"key": "revisor", "name": "Revisor", "role": ""}]
+    payload = {"space": "proj", "tabs": []}
+
+    text = project.module.init_module._interview_prompt(skeleton, payload)
+
+    assert "Every `role` and `instructions` is empty. Fill them from what each \
+agent" in text
+    assert "already written by their agents" not in text
+
+
+def test_the_setup_skill_asks_only_the_pending_roles(project):
+    text = " ".join(
+        project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8").split())
+
+    assert "Ask only the roles the prompt marks as pending" in text
+    assert "never ask it again and never rewrite it" in text
+    # "Ask every agent in the list" solo es cierto para un primer sembrado.
+    assert "Ask every agent in the list" not in text
+
+
 def test_the_setup_skill_carries_the_rules(project):
     text = project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8")
     assert "intercom list-cwd" in text
@@ -1518,8 +1614,11 @@ def test_start_interview_writes_the_skeleton_before_launching(project, monkeypat
     monkeypatch.setattr(project.module.init_module, "_run_interview",
                         lambda path, exe: 0)
 
-    assert project.module.init_module.start_interview([]) is False
+    report = project.module.init_module.start_interview([])
 
+    # La entrevista sí tomó esta tab, pero no rellenó ninguna role.
+    assert report.ran is True
+    assert report.pending == ("orchestrator",)
     config = json.loads((project.root / ".agentorch/agents.json").read_text())
     assert config["tabs"][0]["key"] == "orchestrator"
     assert config["tabs"][0]["name"] == "Orquestador"
@@ -1551,7 +1650,7 @@ def test_init_opens_the_interview_when_live_tabs_exist(project, monkeypatch):
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
                       "role": "Coordinates from the interview."}]}))
-        return True
+        return project.module.init_module.Interview(ran=True)
 
     monkeypatch.setattr(project.module.init_module, "start_interview", fake_interview)
 
@@ -1594,7 +1693,8 @@ def test_a_failed_interview_refuses_to_apply(project, monkeypatch):
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
                       "role": "", "instructions": ""}]}))
-        return False
+        return project.module.init_module.Interview(
+            ran=True, pending=("orchestrator",))
 
     monkeypatch.setattr(project.module.init_module, "start_interview", fake_interview)
 
@@ -1743,7 +1843,7 @@ def test_ids_written_during_the_interview_are_read_afterwards(project, monkeypat
         proposals = project.root / ".agentorch" / "proposals"
         proposals.mkdir(parents=True, exist_ok=True)
         (proposals / "sessions.json").write_text(json.dumps({"orchestrator": sid}))
-        return True
+        return project.module.init_module.Interview(ran=True)
 
     monkeypatch.setattr(project.module.init_module, "start_interview", fake_interview)
     project.state.write_text(json.dumps({"spaces": [

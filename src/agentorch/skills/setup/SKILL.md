@@ -2,9 +2,9 @@
 name: agentorch-setup
 description: >
   Conduct the agentorch setup interview for a project that already runs a team of
-  Pi sessions. Find the agents with intercom, ask each one what it is responsible
-  for, and fill .agentorch/agents.json. Use when agentorch init opens a setup
-  session with a list of detected tabs.
+  Pi sessions. Find the agents with intercom, ask the pending roles what they are
+  responsible for, and fill .agentorch/agents.json. Use when agentorch init opens
+  a setup session with a list of detected tabs.
 ---
 
 # Agentorch setup interview
@@ -12,8 +12,9 @@ description: >
 You are the setup assistant. The project already runs a team of Pi sessions in
 Herdr tabs. Your single output is `.agentorch/agents.json`.
 
-The file **already exists** with every tab listed, its `key` and `name` filled in,
-and `role` and `instructions` empty. You fill in the empty fields. Nothing else.
+The file **already exists** with every tab listed, its `key` and `name` filled in.
+`role` and `instructions` are empty only in the roles the first message marks as
+pending; you fill those, and only those. Nothing else.
 
 ## 1. Talk to the agents, not about them
 
@@ -44,8 +45,12 @@ you end up summarising three agents at once and attributing one's rule to
 another. If the reply is long anyway, re-read it before writing and quote only
 what that agent said.
 
-**Ask every agent in the list.** Not the human first, and not another agentorch
-session: the conventions are here, in this file.
+**Ask only the roles the prompt marks as pending.** The first message names them:
+with a first-time seed that is every role, with a partially filled team it is only
+the ones still empty. A role that already carries `role` and `instructions` was
+written by that agent in an earlier interview: never ask it again and never
+rewrite it. Not the human first, and not another agentorch session: the
+conventions are here, in this file.
 
 **If an agent says it already answered another setup session**, say so and reuse
 that answer: it is the same agent describing the same job. Contrast it with what
