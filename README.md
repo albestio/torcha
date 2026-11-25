@@ -85,12 +85,14 @@ running. `agentorch start <role>` touches only that role.
 
 When an agent has died but its tab survives, the tab is replaced with
 `tab.new --argv` and the session recorded in the registry is resumed; nothing is
-ever typed into a shell. The same happens when the tab or its terminal no longer
-exists at all — Herdr was closed, the tab was deleted — which is the most common
-accident and why recreating is the **default**: the tab is created again with the
-recorded `session_id`, the registry is updated with the new ids and pid, and the
-role is reported as recreated. `--fresh` decides between that recorded session
-and a new one, in both paths.
+ever typed into a shell. `--fresh` decides between that recorded session and a
+new one.
+
+When the tab or its terminal no longer exists, the role is reported as a failure
+and nothing is created — unless `--recreate` is given, which creates the tab
+again with the recorded `session_id` and stores the new ids and pid. Closing a
+tab therefore means parking that role: `agentorch start` will not wake it, and
+`--recreate` is how you bring it back without re-adopting the whole project.
 
 A terminal that exists but is running something that is not a shell is never
 closed and never typed into, whatever the flags say: that tab may hold someone
@@ -98,8 +100,7 @@ else's work. The role is reported as a failure.
 
 | Flag | What it does |
 | --- | --- |
-| `--recreate` | Recreate a tab that has disappeared, resuming its session. This is the default; the flag is still accepted so existing habits and aliases keep working. |
-| `--no-recreate` | Refuse instead: the role is reported as a failure, the registry is left untouched, and the run exits 1. |
+| `--recreate` | Recreate a tab that has disappeared, resuming its session. Without it, a missing tab is a failure and nothing is created. |
 | `--fresh` | A new session instead of resuming the recorded one. |
 
 ## Listing the team

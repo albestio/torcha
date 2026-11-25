@@ -67,15 +67,8 @@ def main() -> int:
                                help="Start only this role.")
             child.add_argument("--fresh", action="store_true",
                                help="A new session instead of resuming the existing one.")
-            recreating = child.add_mutually_exclusive_group()
-            recreating.add_argument("--recreate", dest="recreate",
-                                    action="store_true", default=True,
-                                    help="Recreate a tab that has disappeared and "
-                                         "resume its session (the default).")
-            recreating.add_argument("--no-recreate", dest="recreate",
-                                    action="store_false",
-                                    help="Refuse instead of recreating a tab "
-                                         "that has disappeared.")
+            child.add_argument("--recreate", action="store_true",
+                               help="Recreate the tabs that have been closed.")
     handoff_parser = sub.add_parser("handoff", help="Handoff documents.")
     handoff_parser.add_argument("--project", metavar="PATH", default=argparse.SUPPRESS,
                                 help="Project directory (the current one by default).")
@@ -122,7 +115,7 @@ def main() -> int:
     elif args.command == "start":
         call = lambda: start(role=getattr(args, "role", None),
                              fresh=getattr(args, "fresh", False),
-                             recreate=getattr(args, "recreate", True))
+                             recreate=getattr(args, "recreate", False))
     elif args.command == "handoff" and getattr(args, "handoff_command", None) == "run":
         call = lambda: run_handoff_command(
             role=args.role, all_roles=getattr(args, "all", False),
