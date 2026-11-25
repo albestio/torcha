@@ -18,6 +18,9 @@ from ..herdr import (agent_running, agent_state, extract_tab_ids, runs_inside,
                      run_app, wait_for_agent, wait_for_apps)
 from ..output import log, note
 from ..registry import load_registry, save_registry
+# La edad de un handoff se dice igual aquí y en `status`: una sola redacción.
+from .status import _age_seconds as handoff_age_seconds
+from .status import _age_text as handoff_age_text
 
 
 def _expected_project(path: Path) -> str | None:
@@ -163,7 +166,7 @@ def _prepare(key: str, entry: dict, config: dict, timeout: float,
 
 
 def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
-          interval: float, path: Path | None) -> list[str]:
+          interval: float, path: Path | None, consume: bool = True) -> list[str]:
     terminal = entry.get("terminal_id")
     if not terminal:
         return ["the registry has no terminal"]
@@ -239,7 +242,10 @@ def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
 
     entry.update({"pid": terminal_pid(new_terminal), "session_id": session_id,
                   "app": config["pi"]["executable"]})
-    if path is not None:
+    # Un documento reutilizado se deja tal cual: la sesión nueva lee el que se le
+    # dio, y reescribirlo —aunque solo fuese el estado— es lo que `--use-existing`
+    # existe para evitar.
+    if path is not None and consume:
         try:
             document = load_handoff(path)
             document["status"] = "consumed"
@@ -269,9 +275,35 @@ def _prepared(key: str) -> Path | None:
     return None
 
 
+def _existing_handoff(key: str) -> tuple[Path | None, list[str]]:
+    """The handoff to reuse, or the problems that forbid reusing it.
+
+    No path and no problems means there is nothing eligible on disk and the
+    caller falls back to asking the agent. The document is validated again
+    here: a file that stopped being `prepared`, or that names another agent or
+    project, is not eligible, whatever it said when it was written.
+    """
+    path = _prepared(key)
+    if path is None:
+        return None, []
+    return path, _head_problems(path)
+
+
 def run(role: str | None = None, all_roles: bool = False, swap: bool = False,
         timeout: float = 300.0, interval: float = 1.0,
-        force: bool = False) -> int:
+        force: bool = False, use_existing: bool = False) -> int:
+    # Reutilizar el documento de disco solo tiene sentido cuando hay una sesión
+    # que relevar: sin `--swap` no se reemplaza nada y el flag no significa nada.
+    if use_existing and not swap:
+        note("--use-existing reuses the handoff already on disk instead of asking "
+             "the agent for another one, and that only happens when the session "
+             "is replaced: without --swap there is no session to replace. "
+             "Nothing was sent or written.")
+        return 1
+    if use_existing and force:
+        note("Use one of --force or --use-existing, not both.")
+        return 1
+
     registry = load_registry()
     config = load_config()
     entries = (registry.get("herdr") or {}).get("tabs") or {}
@@ -289,25 +321,52 @@ def run(role: str | None = None, all_roles: bool = False, swap: bool = False,
     targets = list(entries.items()) if all_roles else [(role, entries[role])]
     failed = 0
     for key, entry in targets:
-        # Con --swap siempre se vuelve a pedir: se está a punto de perder la
-        # sesión, así que el handoff tiene que ser de ahora, no de hace horas.
-        if not force and not swap:
-            done = _prepared(key)
-            if done is not None:
-                log(f"{key}: it already had a valid handoff ({done.name}); skipped")
+        path: Path | None = None
+        reused = False
+        if use_existing:
+            candidate, problems = _existing_handoff(key)
+            if candidate is None:
+                note(f"{key}: no valid prepared handoff on disk; falling back to "
+                     "asking the agent")
+            elif problems:
+                note(f"{key}: cannot reuse the handoff on disk — "
+                     f"{'; '.join(problems)}. Ask for a new handoff: run without "
+                     "--use-existing.")
+                failed += 1
+                if all_roles:
+                    note("Stopping here: the other roles were not touched.")
+                    break
                 continue
-        path, problems = _prepare(key, entry, config, timeout, interval)
-        if problems:
-            note(f"{key}: invalid handoff — {'; '.join(problems)}")
-            failed += 1
-            if all_roles:
-                note("Stopping here: the other roles were not touched.")
-                break
-            continue
-        log(f"{key}: handoff written and validated ({path.name})")
+            else:
+                document = load_handoff(candidate)
+                age = handoff_age_text(handoff_age_seconds(candidate, document))
+                log(f"{key}: reusing the handoff written {age} ({candidate.name}); "
+                    "the agent was not asked for another one")
+                path = candidate
+                reused = True
+        if path is None:
+            # Con --swap siempre se vuelve a pedir: se está a punto de perder la
+            # sesión, así que el handoff tiene que ser de ahora, no de hace horas.
+            if not force and not swap:
+                done = _prepared(key)
+                if done is not None:
+                    log(f"{key}: it already had a valid handoff ({done.name}); skipped")
+                    continue
+            path, problems = _prepare(key, entry, config, timeout, interval)
+            if problems:
+                note(f"{key}: invalid handoff — {'; '.join(problems)}")
+                failed += 1
+                if all_roles:
+                    note("Stopping here: the other roles were not touched.")
+                    break
+                continue
+            log(f"{key}: handoff written and validated ({path.name})")
         if not swap:
             continue
-        errors = _swap(key, entry, config, registry, timeout, interval, path)
+        errors = _swap(key, entry, config, registry, timeout, interval, path,
+                       # Un documento reutilizado también queda gastado: si no,
+                       # un segundo `--use-existing` relevaría otra vez con él.
+                       consume=True)
         if errors:
             note(f"{key}: valid handoff, but the swap failed — {'; '.join(errors)}")
             failed += 1

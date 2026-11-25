@@ -85,6 +85,10 @@ def main() -> int:
                             help="Every role, in sequence.")
     run_parser.add_argument("--swap", action="store_true",
                             help="Replace the session after validating the handoff.")
+    run_parser.add_argument("--use-existing", action="store_true",
+                            help="Reuse the newest handoff already on disk instead "
+                                 "of asking the agent for another one. Requires "
+                                 "--swap, and the git.head check still applies.")
     run_parser.add_argument("--timeout", type=float, default=300.0,
                             help="Seconds to wait per agent (300 by default).")
     run_parser.add_argument("--force", action="store_true",
@@ -128,7 +132,8 @@ def main() -> int:
             role=args.role, all_roles=getattr(args, "all", False),
             swap=getattr(args, "swap", False),
             timeout=getattr(args, "timeout", 300.0),
-            force=getattr(args, "force", False))
+            force=getattr(args, "force", False),
+            use_existing=getattr(args, "use_existing", False))
     elif args.command == "handoff" and getattr(args, "handoff_command", None) == "validate":
         call = lambda: validate_handoff_command(
             args.path, as_json=getattr(args, "json", False),

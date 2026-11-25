@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -2813,6 +2814,238 @@ def test_handoff_run_all_stops_at_the_first_failure(project, monkeypatch, capsys
                                               interval=0.01) == 1
     err = capsys.readouterr().err
     assert "Stopping here" in err
+
+
+# --- handoff run --use-existing --swap ---------------------------------------
+
+
+def reusable_handoff(project, role="orchestrator", head=HEAD, *, minutes=120,
+                     status="prepared", agent_id=None, project_name=None,
+                     handoff_id=None, mtime=None):
+    """Un handoff que ya valida sobre el disco: lo que `--use-existing` reutiliza."""
+    directory = project.root / ".agentorch" / "handoffs" / role
+    directory.mkdir(parents=True, exist_ok=True)
+    data = valid_handoff(
+        handoff_id=handoff_id or str(uuid.uuid4()),
+        project=project_name or project.root.name,
+        agent_id=agent_id or role,
+        status=status,
+        created_at=iso_ago(minutes=minutes),
+        git={"branch": "main", "head": head, "status_summary": "clean tree"})
+    path = directory / f"{data['handoff_id']}.json"
+    path.write_text(json.dumps(data))
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+    return path
+
+
+def record_sends(project, monkeypatch):
+    """El agente no escribe nada: solo se anota todo lo que se le manda."""
+    sent = []
+    monkeypatch.setattr(project.module.handoff_command, "send_text",
+                        lambda terminal, text: sent.append(text) or True)
+    return sent
+
+
+def test_use_existing_swaps_with_the_document_on_disk_without_asking(
+        project, monkeypatch, capsys):
+    """Reutilizar ahorra el turno: ni RELEVO ni documento reescrito."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch)
+    document = reusable_handoff(project, minutes=120)
+    before = document.read_text()
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.2, interval=0.01,
+        swap=True) == 0
+
+    out = capsys.readouterr().out
+    assert sent == []                                   # no se pide otro handoff
+    assert "reusing the handoff written 2h ago" in out  # y se dice su edad
+    # El contenido no se reescribe: el agente no vuelve a escribirlo. Pero el
+    # documento queda gastado, o un segundo --use-existing relevaría con él otra
+    # vez. Se comprueba el cuerpo intacto y solo el estado cambiado.
+    after = json.loads(document.read_text())
+    written = json.loads(before)
+    assert after["status"] == "consumed"
+    written["status"] = "consumed"
+    assert after == written                            # nada más cambió
+    assert len(list(document.parent.glob("*.json"))) == 1
+    entry = project.registry()["herdr"]["tabs"]["orchestrator"]
+    assert entry["pid"] == 1002
+    assert entry["session_id"] != "11111111-1111-4111-8111-111111111111"
+    assert [opts["id"] for opts in project.options_for("tab.close")] == ["tb1"]
+    new_argv = json.loads(project.options_for("tab.new")[0]["argv"])
+    assert "@.agentorch/bootstrap/orchestrator.md" in new_argv
+    # La sesión nueva lee el documento que se le dio, no otro.
+    text = project.bootstrap("orchestrator")
+    assert "Recovery protocol" in text
+    assert ".agentorch/handoffs/orchestrator/" in text
+
+
+def test_reuse_still_refuses_a_handoff_the_repository_moved_past(
+        project, monkeypatch, capsys):
+    """El chequeo de HEAD no se salta: reutilizar no puede ser un atajo."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch, head=MOVED)
+    document = reusable_handoff(project, head=HEAD)
+    before = document.read_text()
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.2, interval=0.01,
+        swap=True) == 1
+
+    err = capsys.readouterr().err
+    assert f"the handoff declares {HEAD} and the repository is at {MOVED}" in err
+    assert "ask for a new handoff" in err.lower()
+    assert sent == []
+    assert document.read_text() == before
+    assert "tab.close" not in project.commands()
+    assert project.registry()["herdr"]["tabs"]["orchestrator"]["pid"] == 500
+
+
+def test_use_existing_without_a_swap_is_refused(project, monkeypatch, capsys):
+    """Sin --swap no hay sesión que relevar: se dice y no se hace nada."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    reusable_handoff(project)
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.2, interval=0.01) == 1
+
+    err = capsys.readouterr().err
+    assert "--swap" in err
+    assert "there is no session to replace" in err
+    assert "Nothing was sent or written" in err
+    assert sent == []
+    assert project.commands() == []
+    assert project.registry()["herdr"]["tabs"]["orchestrator"]["pid"] == 500
+    files = list((project.root / ".agentorch" / "handoffs" / "orchestrator").glob("*.json"))
+    assert len(files) == 1                              # no se escribió otro documento
+
+
+def test_use_existing_falls_back_to_asking_and_says_so(project, monkeypatch, capsys):
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch)
+    fill_on_send(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.2, interval=0.01,
+        swap=True) == 0
+
+    err = capsys.readouterr().err
+    assert "falling back to asking the agent" in err
+    files = list((project.root / ".agentorch" / "handoffs" / "orchestrator").glob("*.json"))
+    assert len(files) == 1
+    assert json.loads(files[0].read_text())["status"] == "consumed"
+    assert project.options_for("tab.new")
+
+
+@pytest.mark.parametrize("changes", [
+    {"status": "consumed"},
+    {"status": "superseded"},
+    {"agent_id": "worker_1"},
+    {"project_name": "another-project"},
+])
+def test_a_document_that_no_longer_qualifies_is_not_reused(
+        project, monkeypatch, capsys, changes):
+    """Se vuelve a validar antes de usarlo: prepared, agent_id y project cuentan."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch)
+    ineligible = reusable_handoff(project, **changes)
+    before = ineligible.read_text()
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.0, interval=0.01,
+        swap=True) == 1
+
+    err = capsys.readouterr().err
+    assert "falling back to asking the agent" in err
+    assert sent and ".agentorch/handoffs/orchestrator" in sent[0]   # RELEVO salió
+    assert ineligible.read_text() == before             # el no elegible no se toca
+    assert "tab.close" not in project.commands()
+
+
+def test_reuse_skips_an_ineligible_newer_document_for_a_valid_older_one(
+        project, monkeypatch, capsys):
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch)
+    now = time.time()
+    older = reusable_handoff(
+        project, minutes=300, mtime=now - 3600,
+        handoff_id="22222222-2222-4222-8222-222222222222")
+    newer = reusable_handoff(
+        project, minutes=5, status="consumed", mtime=now,
+        handoff_id="33333333-3333-4333-8333-333333333333")
+    newer_before = newer.read_text()
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.2, interval=0.01,
+        swap=True) == 0
+
+    assert sent == []
+    assert "reusing the handoff written 5h ago" in capsys.readouterr().out
+    assert newer.read_text() == newer_before
+    assert older.exists()
+
+
+def test_force_and_use_existing_together_are_refused(project, monkeypatch, capsys):
+    """Se contradicen: se dice en vez de elegir uno por su cuenta."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    reusable_handoff(project)
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, force=True, swap=True,
+        timeout=0.2, interval=0.01) == 1
+
+    err = capsys.readouterr().err
+    assert "--force" in err and "--use-existing" in err
+    assert sent == []
+    assert "tab.close" not in project.commands()
+
+
+def test_force_still_asks_again_when_a_valid_handoff_exists(
+        project, monkeypatch, capsys):
+    """Lo que `--force` ya hacía sigue igual, con el flag nuevo en la mano."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch)
+    reusable_handoff(project)
+    fill_on_send(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", force=True, timeout=0.2, interval=0.01) == 0
+
+    assert "handoff written and validated" in capsys.readouterr().out
+    files = list((project.root / ".agentorch" / "handoffs" / "orchestrator").glob("*.json"))
+    assert len(files) == 2
+
+
+def test_handoff_run_help_states_the_requirement_of_use_existing(project):
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    helped = subprocess.run([sys.executable, "-m", "agentorch", "handoff",
+                             "run", "--help"],
+                            cwd=project.root, env=env,
+                            capture_output=True, text=True)
+    text = " ".join(helped.stdout.split())   # el ancho de línea no importa
+    assert helped.returncode == 0
+    assert "--use-existing" in text
+    assert "Requires --swap" in text
+    assert "git.head" in text
 
 
 # --- naming the setup tab ---------------------------------------------------

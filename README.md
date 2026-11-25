@@ -154,6 +154,49 @@ replace `agentorch status`, which stays the one that rules on divergence. When
 the registry or `herdr-app ls` cannot be read it prints what it can, shows `?`
 for the counts it cannot compute and exits non-zero.
 
+## Asking for a handoff
+
+`agentorch handoff run <role>` asks a running agent to write its handoff. It
+creates the document with the `git` block measured by agentorch, sends `RELEVO`
+— a prompt listing every field and the shape each one has — waits for the agent
+to fill it in, and validates the result: the schema, the ids, the secrets scan,
+and the `git.head` against the repository as it is now. A document that declares
+a head the repository has moved past is refused with both shas named, because a
+successor that compares the handoff with `git rev-parse HEAD` would otherwise
+inherit a state that is no longer true. Without `--swap` the document is left
+`prepared`; a role that already has a valid one is skipped, unless `--force`
+asks for a fresh one anyway.
+
+`--swap` goes one step further: it closes the tab, relaunches the session with a
+new session id and the `recover` bootstrap, and marks the accepted document
+`consumed`, so the successor reads the document it was handed instead of being
+greeted into an empty context.
+
+After a relief the document is already written and validated, so asking for it
+again costs a turn and rewrites what was just agreed. `--use-existing` reuses
+the newest handoff that already validates instead: nothing is sent to the agent,
+no new document is created and the document is left exactly as written. The run
+states the document's age in words (`reusing the handoff written 2h ago`), so
+reusing something from last week is visible rather than silent.
+
+| Flag | What it does |
+| --- | --- |
+| `--swap` | Replace the role's session with the validated handoff. Refused when `pi.bootstrap` is `none`. |
+| `--use-existing` | With `--swap` only: reuse the newest valid handoff instead of asking the agent for a new one. Without `--swap` it is refused, because there is no session to replace and nothing is sent or written. |
+| `--force` | Ask the agent again even when a valid handoff already exists. Cannot be combined with `--use-existing`. |
+| `--all` | Every registered role, in sequence; the run stops at the first failure and says the rest were not touched. |
+| `--timeout` | Seconds to wait per agent (300 by default). |
+
+Reuse is only as good as the document on disk. The `git.head` check is not
+waived: a repository that moved since the document was written is refused,
+naming both shas and asking for a new handoff. The file is also validated
+again before it is used, so one that stopped being `prepared`, or whose
+`agent_id` or `project` no longer matches, is not eligible and an older valid
+document is chosen instead of it. And when a role has no valid prepared handoff
+at all, the run says it is falling back to asking the agent — `no valid prepared
+handoff on disk; falling back to asking the agent` — instead of quietly doing
+the other thing.
+
 ## Status: what decides a handoff
 
 `agentorch status` still rules on divergence: per registered role it reports
