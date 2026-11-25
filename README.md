@@ -297,6 +297,20 @@ of the tree — this repository ignores `.agentorch/handoffs/` and
 uv run --extra test pytest -q
 ```
 
+The suite is hermetic: it runs against a fake `herdr-app`/`hc` written in the test
+file and needs no workspace, no terminal and no network. Someone cloning this
+repository on a fresh machine gets a green run — a test that needs a real binary
+skips.
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the setup, the rules a change has to
+meet, and where each piece lives. [`docs/cli.md`](docs/cli.md) is the reference
+for every command and option, and a test fails when it falls behind the code.
+
+## Security
+
+It shells out to local binaries and sends prompts to running agents; what that
+means, and how to report a problem privately, is in [`SECURITY.md`](SECURITY.md).
+
 ## License
 
 GPL-3.0-or-later. See `LICENSE`.

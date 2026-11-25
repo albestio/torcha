@@ -1281,7 +1281,7 @@ def presence_block(**fields):
     from somewhere else passes `id=FOREIGN_ID`.
     """
     block = {"id": SESSION,
-             "name": "subagent-chat-01a21214", "cwd": "/home/albestio/Code/proj",
+             "name": "subagent-chat-01a21214", "cwd": "/project",
              "model": "deepseek-v4.1-flash", "pid": 14118,
              "status": "idle", "trustedLocal": True}
     block.update(fields)
@@ -2401,6 +2401,9 @@ def test_start_interview_writes_the_skeleton_before_launching(project, monkeypat
     project.state.write_text(json.dumps({"spaces": [
         seeded_space("sp01", "proj", "/wrong", str(project.root), "t01")],
         "calls": []}))
+    # `start_interview` comprueba que el ejecutable existe: sin este stub el
+    # test depende de que `pi` esté instalado en la máquina que lo ejecuta.
+    monkeypatch.setattr(shutil, "which", lambda exe: f"/usr/bin/{exe}")
     monkeypatch.setattr(project.module.init_module, "_run_interview",
                         lambda path, exe: 0)
 
@@ -2578,6 +2581,9 @@ def test_a_loose_tab_in_the_space_is_not_a_team_tab(project, monkeypatch, capsys
         "calls": []}))
     monkeypatch.setattr(project.module.init_module, "_own_tab",
                         lambda: {"id": "tb-loose", "name": "6"})
+    # `start_interview` comprueba que el ejecutable existe: sin este stub el
+    # test depende de que `pi` esté instalado en la máquina que lo ejecuta.
+    monkeypatch.setattr(shutil, "which", lambda exe: f"/usr/bin/{exe}")
     monkeypatch.setattr(project.module.init_module, "_run_interview",
                         lambda path, exe: 0)
 
