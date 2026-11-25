@@ -273,6 +273,10 @@ def main(argv):
         return 1
 
     if argv[:1] == ["send"] and len(argv) >= 3:
+        if state.get("hc_send_fails"):
+            _save(state)
+            print(json.dumps({"error": "the core refused the send"}))
+            return 1
         address, text = argv[1], " ".join(argv[2:])
         state.setdefault("hc_sent", []).append([address, text])
         for space in state["spaces"]:
@@ -3187,6 +3191,13 @@ def sent(project):
     return project.read_state().get("hc_sent", [])
 
 
+def catch_up_text(project, **overrides):
+    """The catch-up as the command renders it, with every field it names."""
+    fields = {"project": "proj", "key": "orchestrator", "name": "Orquestador"}
+    fields.update(overrides)
+    return project.module.recover_module.CATCH_UP.format(**fields)
+
+
 def test_recover_sends_a_catch_up_to_the_running_agent(project):
     """The effect, not the shape: one message, nothing touched, no tab moved."""
     recover_registry(project)
@@ -3249,7 +3260,7 @@ def test_recover_refuses_the_terminal_running_the_command(project, monkeypatch,
 
 def test_the_catch_up_message_is_its_own_text(project):
     """Neither the launch bootstrap (confirm who you are) nor the relevo (write a handoff)."""
-    text = project.module.recover_module.CATCH_UP.format(key="orchestrator")
+    text = catch_up_text(project)
 
     # Lo que un agente ya en marcha necesita leer.
     assert ".agentorch/handoffs/orchestrator/" in text
@@ -3267,6 +3278,115 @@ def test_the_catch_up_message_is_its_own_text(project):
     assert "Confirm your identity" not in text
     assert "wait for instructions" not in text
     assert "Fill in the handoff" not in text
+
+
+def test_recover_refuses_a_terminal_that_now_lives_in_another_tab(project, capsys):
+    """A terminal running the right executable is not enough: the id can carry
+    another role's tab, and this role's handoff path would go to a stranger.
+    """
+    recover_registry(project)
+    seed_live(project, [live_tab("tb9", "Worker 1", "t1", pid=500)])
+    before = registry_bytes(project)
+
+    assert project.module.recover("orchestrator") == 1
+
+    err = capsys.readouterr().err
+    assert "tb1" in err and "tb9" in err
+    assert "now lives in tab" in err
+    assert "agentorch start orchestrator" in err
+    assert sent(project) == []
+    assert registry_bytes(project) == before
+
+
+def test_recover_warns_about_a_renamed_tab_and_still_sends(project, capsys):
+    """Renombrar la tab no cambia quién está dentro: se avisa y se envía."""
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Another name", "t1", pid=500)])
+
+    assert project.module.recover("orchestrator") == 0
+
+    err = capsys.readouterr().err
+    assert "Another name" in err and "Orquestador" in err
+    assert "agentorch start orchestrator" in err
+    assert [address for address, _ in sent(project)] == ["t1"]
+
+
+def test_recover_refuses_an_entry_with_no_terminal(project, capsys):
+    """No terminal id: nothing to prove, so nothing is sent and `start` is the way."""
+    write_registry(project, tabs={"orchestrator": {
+        "name": "Orquestador", "tab_id": "tb1", "terminal_id": None,
+        "pane_id": None, "app": None, "pid": None, "session_id": None}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    before = registry_bytes(project)
+
+    assert project.module.recover("orchestrator") == 1
+
+    err = capsys.readouterr().err
+    assert "the registry has no terminal" in err
+    assert "agentorch start orchestrator" in err
+    assert sent(project) == []
+    assert registry_bytes(project) == before
+
+
+def test_recover_fails_when_herdr_core_refuses_the_send(project, capsys):
+    """A refusal is a failure, never a silent success."""
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    state = project.read_state()
+    state["hc_send_fails"] = True
+    project.state.write_text(json.dumps(state))
+
+    assert project.module.recover("orchestrator") == 1
+
+    captured = capsys.readouterr()
+    assert "did not accept the send" in captured.err
+    assert "t1" in captured.err
+    assert "sent to its running session" not in captured.out
+    assert sent(project) == []
+
+
+def test_recover_reports_a_mid_turn_agent_as_queued(project, capsys):
+    """The message is sent, but the human is not told the agent has answered."""
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    state = project.read_state()
+    state["spaces"][0]["tabs"][0]["terminals"][0]["status"] = "working"
+    project.state.write_text(json.dumps(state))
+
+    assert project.module.recover("orchestrator") == 0
+
+    captured = capsys.readouterr()
+    assert "the agent is working" in captured.err
+    assert "queues behind its current turn" in captured.err
+    assert "not been answered" in captured.err
+    # El mensaje viaja igual: el agente lo lee al terminar su turno.
+    assert len(sent(project)) == 1
+    assert ".agentorch/handoffs/orchestrator/" in sent(project)[0][1]
+
+
+def test_the_catch_up_says_what_to_do_without_a_handoff_or_engram(project):
+    """No instruction the agent cannot satisfy: both empty cases say so and continue."""
+    text = catch_up_text(project)
+
+    assert text.count("say so and continue") == 2
+    assert "If there is none" in text        # no handoff for this role
+    assert "If there is nothing" in text     # nothing in Engram for this role
+
+
+def test_the_catch_up_names_the_project_and_the_role(project):
+    text = catch_up_text(project)
+
+    assert "`proj`" in text
+    assert "Orquestador" in text and "`orchestrator`" in text
+    # "The most recent file" is ambiguous: newest by modification time.
+    assert "by modification time" in text
+    # No pide releer el proyecto entero y a la vez leer el árbol.
+    assert "read the working tree" not in text
+    assert "do not re-read" in text
+    # Ni vocabulario de escritura de handoff (`keys`, `sha`).
+    assert "sha" not in text
+    assert "keys" not in text
+    assert "Do not write a handoff" in text
 
 
 def test_recover_is_registered_with_its_help_line(project):

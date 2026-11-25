@@ -106,17 +106,26 @@ else's work. The role is reported as a failure.
 ## Catching a running agent up
 
 `agentorch recover <role>` sends one short catch-up message to that role's
-running agent: read your newest handoff, compare its `git.head` with
-`git rev-parse HEAD`, treat the working tree as the source of truth, look the
-role up in Engram, and answer with what is done, what is pending and what the
-repository contradicts.
+running agent: read your newest handoff (the newest file by modification time),
+compare its `git.head` with `git rev-parse HEAD`, treat the working tree as the
+source of truth, look the role up in Engram, and answer with what is done, what
+is pending and what the repository contradicts. The message names the project
+and the role, and it has a branch for each empty source: with no handoff, or
+with nothing in Engram for that role, the agent is told to say so and continue
+instead of reporting a comparison it could not make.
 
 It does not replace the session. No tab is created, closed, moved or focused,
 the session id stays the same, the registry is not written and no handoff is
-opened or written; the answer arrives in the agent's own tab. It needs an agent
-already running in that terminal: a role with no agent is refused and needs
-`agentorch start <role>`, and the terminal running the command is refused like
-the swap's guard.
+opened or written; the answer arrives in the agent's own tab. Nothing is sent
+unless the target is that role's own tab: the terminal is looked up in the live
+workspace and must belong to the tab id the registry records for it, and to the
+same name when both sides report one — otherwise the run is refused, says which
+tab it found and asks for `agentorch start <role>`, because delivering one
+role's handoff path to another agent is worse than not sending. A role with no
+agent and an entry with no terminal are refused the same way, and the terminal
+running the command is refused like the swap's guard. An agent that is mid-turn
+is not reported as answered: the message is sent, queues behind its current
+turn, and the run says so.
 
 ## Listing the team
 
