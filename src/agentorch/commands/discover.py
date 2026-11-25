@@ -16,7 +16,7 @@ from ..discovery import choose, scan
 from ..herdr import (get_spaces, parse_json_output, run_app, space_id,
                      spaces_for_project, terminal_folders)
 from ..live import (designate_orchestrator, inspect_space, normalize,
-                    proposal_from_live)
+                    proposal_from_live, report_tabs_without_agent)
 from ..output import note
 
 
@@ -97,6 +97,10 @@ def discover(live: bool = False, as_json: bool = False) -> int:
             "scope": candidate.scope, "path": candidate.path,
         } for candidate in candidates]
 
+    if live_tabs:
+        # The proposal is built for the human here: say which named tabs have no
+        # agent, instead of letting them pass unnoticed.
+        report_tabs_without_agent(live_tabs)
     proposal = proposal_from_live(live_tabs, max_tabs=configured_max_tabs()) \
         if live_tabs else []
     if proposal:

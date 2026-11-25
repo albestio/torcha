@@ -2623,6 +2623,87 @@ def test_the_skeleton_keeps_the_live_names_with_the_orchestrator_first(project):
     assert [tab["role"] for tab in skeleton] == ["", ""]
 
 
+# --- a named tab whose agent died is not lost in silence --------------------
+
+def career_ops_space_with_a_dead_agent(folder: str) -> dict:
+    """The measured career-ops shape: Coach is named but has no program."""
+    space = career_ops_space(folder)
+    for tab in space["tabs"]:
+        if tab["name"] == "Coach":
+            tab["terminals"][0]["app"] = None
+            tab["terminals"][0]["status"] = None
+    return space
+
+
+def test_a_named_tab_without_an_agent_is_reported_once_with_a_way_forward(
+        project, capsys):
+    project.state.write_text(json.dumps({
+        "spaces": [career_ops_space_with_a_dead_agent(str(project.root))],
+        "calls": []}))
+
+    assert project.module.discover(live=True) == 0
+
+    captured = capsys.readouterr()
+    # role_tabs has several callers in one command (the proposal, the election
+    # of the orchestrator); the note belongs to the command, so it prints once.
+    reported = [line for line in captured.err.splitlines()
+                if "no agent running" in line]
+    assert len(reported) == 1
+    assert "Coach" in reported[0]
+    assert "agentorch start <role> --recreate" in reported[0]
+    assert "by hand" in reported[0]
+
+
+def test_only_the_named_tab_without_an_agent_is_reported(
+        project, monkeypatch, capsys):
+    """The setup marker, an unnamed tab and the caller's own tab stay silent."""
+    (project.root / ".agentorch/agents.json").unlink()
+    folder = str(project.root)
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": folder, "active": True,
+        "tabs": [role_tab(1, "Senior Orchestrator", folder),
+                 role_tab(2, "Coach", folder, app=None),
+                 role_tab(3, "Agentorch", folder),
+                 role_tab(4, "7", folder, app=None),
+                 role_tab(5, "Scratch", folder)]}], "calls": []}))
+    monkeypatch.setattr(project.module.init_module, "_own_tab",
+                        lambda: {"id": "tb-05", "name": "Scratch"})
+    monkeypatch.setattr(project.module.init_module, "_run_interview",
+                        lambda path, exe: 0)
+
+    project.module.init_module.start_interview([])
+
+    reported = [line for line in capsys.readouterr().err.splitlines()
+                if "no agent running" in line]
+    assert len(reported) == 1
+    assert "Coach" in reported[0]
+    for silent in ("Agentorch", "7", "Scratch"):
+        assert silent not in reported[0]
+
+
+def test_init_reports_a_named_tab_without_an_agent_on_both_paths(
+        project, monkeypatch, capsys):
+    folder = str(project.root)
+    project.state.write_text(json.dumps({
+        "spaces": [career_ops_space_with_a_dead_agent(folder)], "calls": []}))
+    config = project.root / ".agentorch/agents.json"
+
+    # The fallback, which proposes from the live tabs without an interview.
+    config.unlink()
+    tabs, origin = project.module.init_module.initial_tabs([])
+    assert origin == "named live tabs"
+    fallback = capsys.readouterr().err
+    assert "no agent running" in fallback and "Coach" in fallback
+
+    # The interview path, which builds the skeleton.
+    config.unlink(missing_ok=True)
+    monkeypatch.setattr(project.module.init_module, "_run_interview",
+                        lambda path, exe: 0)
+    project.module.init_module.start_interview([])
+    interview = capsys.readouterr().err
+    assert "no agent running" in interview and "Coach" in interview
+
+
 # --- the main session -------------------------------------------------------
 
 

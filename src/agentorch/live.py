@@ -160,6 +160,27 @@ def _cut_by_limit(ordered: list[LiveTab], limit: int, taken: int) -> list[LiveTa
     return ordered[:room]
 
 
+def report_tabs_without_agent(tabs: list[LiveTab],
+                              own_tab_id: str | None = None) -> list[LiveTab]:
+    """Name the named tabs left out only because no agent runs in them.
+
+    A named tab whose Pi died is an exclusion a human cannot see on screen: the
+    skeleton drops it, so without this the role disappears in silence. The tabs
+    excluded on purpose stay quiet -- the setup marker, a bare tab Herdr named
+    after its number, and the tab running the command -- because reporting them
+    would train the human to ignore the message. It is reported once per
+    command, not from `role_tabs`, which several callers share in one run.
+    """
+    idle = [tab for tab in role_tabs(tabs, own_tab_id) if not tab.has_agent]
+    if idle:
+        place = "that tab" if len(idle) == 1 else "each of them"
+        note(f"Named tab(s) with no agent running: "
+             f"{', '.join(tab.name for tab in idle)}. Start Pi in {place} by "
+             f"hand, or once the role is in the configuration run "
+             f"'agentorch start <role> --recreate'.")
+    return idle
+
+
 def proposal_from_live(tabs: list[LiveTab], max_tabs: int = MAX_TABS,
                        own_tab_id: str | None = None) -> list[dict[str, str]]:
     """Build a `tabs` list from the tabs a human actually created and named.

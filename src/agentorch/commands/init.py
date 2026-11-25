@@ -23,7 +23,7 @@ from ..herdr import (extract_tab_ids, first_string, get_spaces, parse_json_outpu
                      tab_name, tabs_of, terminal_folders, terminal_pid,
                      wait_for_apps)
 from ..live import (inspect_space, names_the_role, proposal_from_live,
-                    role_tabs, skeleton_from_live)
+                    report_tabs_without_agent, role_tabs, skeleton_from_live)
 from ..commands.discover import live_payload
 from ..output import error, log, note
 from ..registry import registry_template, save_registry, timestamp, write_json_atomic
@@ -43,8 +43,12 @@ def initial_tabs(candidates) -> tuple[list[dict[str, str]], str]:
     if data is not None:
         spaces = spaces_for_project(get_spaces(data), str(project.PROJECT_DIR),
                                     terminal_folders())
-        for space in spaces:
-            tabs = proposal_from_live(inspect_space(space, candidates),
+        for index, space in enumerate(spaces):
+            live_tabs = inspect_space(space, candidates)
+            # Once per command: the loop can see more than one space.
+            if index == 0:
+                report_tabs_without_agent(live_tabs)
+            tabs = proposal_from_live(live_tabs,
                                       max_tabs=configured_max_tabs())
             if tabs:
                 return tabs, "named live tabs"
@@ -245,6 +249,7 @@ def start_interview(candidates) -> Interview:
     directory = project.AGENTORCH_DIR
     directory.mkdir(parents=True, exist_ok=True)
     if not project.CONFIG_FILE.exists():
+        report_tabs_without_agent(live_tabs, own_tab_id)
         tabs = skeleton_from_live(live_tabs, max_tabs=configured_max_tabs(),
                                   own_tab_id=own_tab_id)
         if not tabs:
