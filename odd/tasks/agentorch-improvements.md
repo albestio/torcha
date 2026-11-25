@@ -51,6 +51,10 @@ Observable: with a registered role whose tab no longer exists, a plain `agentorc
 **S16 — changing `pi.bootstrap` must reach the files `pi` reads.** The mode is not consulted at launch: it is rendered into `.agentorch/bootstrap/<key>.md`, and only two places write those files — `init` (configured mode) and the swap (`recover` for that role). `start` does not. So editing `agents.json` from `greet` to `recover` and running `agentorch start` launches the agent with the **old** prompt on disk, and nothing says so. Observed while answering a question about the modes on 2026-11-25: `grep -c 'Recovery protocol' .agentorch/bootstrap/*.md` returned 0 for a configuration that claimed `recover` would be in effect.
 Observable: when the file on disk does not hold exactly what the configured mode renders, the launch refuses that role, names the file and the mode it was written for, and tells the human to run `agentorch init` to reconcile it; nothing is overwritten and the registry is untouched. `doctor` reports the same disagreement as a finding. When the file matches, the launch proceeds as today, and a swap still renders `recover` for the role it is about to relaunch.
 
+**S17 — `recover` on demand, inside a running session.** A role that has been parked or idle for a long time needs to catch up on the world, not to be replaced. Today the recovery protocol only reaches an agent at launch, where nobody is watching, or forced by a swap, which destroys the session.
+Observable: `agentorch recover <role>` sends a catch-up message to that role's live agent and returns without touching the tab, the session id, the registry or the handoff; the agent answers in its own tab with what is done, what is pending and what the repository contradicts, after comparing its handoff's `git.head` with the current HEAD. The target is confirmed to be that role's own tab, not merely a terminal running the configured executable: a registry entry whose tab id no longer matches must be refused, because sending the wrong role's handoff path to another agent is worse than not sending; a tab that was merely renamed is a warning, not a refusal, since the id is the identity and the name is the human's label. A role with no running agent is refused with a message pointing at `start`, the terminal running the command is refused like the swap's guard, and an agent that is mid-turn is reported as queued rather than as answered. When there is no handoff, or Engram has nothing for the role, the prompt says to report that and continue instead of asking for a comparison that cannot be made. The prompt is its own text, neither the launch bootstrap nor `RELEVO`, and it names the project and the role.
+| T11 | S16 | writer `gentle-ai-worker` | not committed | Make the bootstrap files follow `pi.bootstrap` at launch, or fail loudly when they disagree; surface it in `doctor`. |
+
 **S18 — `status` carries the per-role detail that decides a handoff.** `status` says `alive` and stops, which answers nothing about the question the tool exists for: is this role close to filling its context, and is its handoff still true? The data is available without disturbing any agent.
 Observable: for each registered role, `status` reports the newest handoff for that role — its age and its `git.head` — how far the repository has moved since (`git rev-list --count <handoff head>..HEAD`, and whether the working tree is dirty), and the tokens consumed by that role's last turn, read from its Pi session transcript. A percentage of the context window is shown only when the window is resolvable; otherwise the tokens are shown alone and the gap is stated, never guessed. A role with no handoff, no session id or no readable transcript says so per role instead of omitting the column. `--json` carries the same fields. Reading these sources never writes anything and never sends anything to an agent.
 Note for the implementer: the transcript records `usage.totalTokens` and `model` per message but **not** the context window, so the percentage needs a window from somewhere else; treat it as best-effort and degrade loudly. The session store lives outside the project under Pi's own directory — read it defensively, by globbing the session id, and never fail the command because it is missing.
@@ -66,82 +70,100 @@ Observable: at the end of a run, `init` names the live tabs with an agent that a
 
 ## Tasks
 
-| ID | Specs | Route | Commit | Task |
+| ID | Specs | State | Commit | Task |
 | --- | --- | --- | --- | --- |
-| T1 | S1, S2, S3, S4, S5 | writer `gentle-ai-worker`, then full suite | not committed (repo has no commits) | Rewrite `start`'s launch path over `tab.close` + `tab.new --argv`, honour `--fresh` in `_recreate`, take the ids from `ls`, fix the recreate log label, and refresh the stale test expectations. **Done**: 153 green. |
-| T2 | S6 | writer `gentle-ai-worker`, then independent verify (Risk item 3: `RELEVO` is a mirrored prompt) | not committed | Pin the `git` block in `RELEVO` and make the swap reject a handoff whose `git.head` no longer matches the repository. **Done**: 157 green, verify pending. |
-| T3 | S7, S8 | writer `gentle-ai-worker` | not committed | Raise the team limit to a configurable 10, exclude the setup tab by its marker and by the tab running the command, and name any tab left out. **Done**: 169 green. |
-| T4 | S9 | writer `gentle-ai-worker`, own commit after T1-T3 land | not committed | Translate every CLI message, help text and `RELEVO` into English and update the tests that assert those strings. |
-| T5 | S10 | writer `gentle-ai-worker` | not committed | Report a named tab excluded for having no live agent, naming the tab, instead of dropping it silently. |
-| T6 | S11 | writer `gentle-ai-worker` + `SKILL.md` | not committed | Make the interview prompt and the setup skill speak only about the pending roles, so a partially filled team is never re-interviewed or rewritten. |
-| T7 | S12 | writer `gentle-ai-worker`, after T4 releases `init.py` | not committed | Keep the focus and the visible logs in the setup tab after an interview; leave the orchestrator focus for runs without one. **Done**: `d7cc78f`, 176 green. |
-| T8 | S13 | writer `gentle-ai-worker` | not committed | Treat a role with an empty `role` or an empty `instructions` as pending, and make the interview say which field it is filling. |
-| T9 | S14 | writer `gentle-ai-worker`, after T8 releases the test file | not committed | Add `agentorch ls`: the declared team against the live workspace, one line per role, live tabs outside the team named, counts summarised. |
-| T10 | S15 | writer `gentle-ai-worker`, own commit | not committed | Make `start` recreate a missing tab and resume its session by default, keep `--no-recreate` as the refusal, and update the help, the README and the test that pinned the old contract. **Superseded**: reverted in `69ab89b` when closing a tab turned out to mean "park this role". |
-| T12 | S17 | writer `gentle-ai-worker`, own commit, then independent verify (mirrored prompt) | not committed | Add `agentorch recover <role>`: send a catch-up prompt to a live agent in its own session, with no relaunch and no swap. **Reopened**: round 2 after the verification pass (`mww0hmjt-a-3mne`) found the target identity unchecked, mid-turn unreported and no fallback for a missing handoff. |
-| T14 | S18 | writer `gentle-ai-worker` | not committed | Give `status` the per-role detail that decides a handoff: handoff age, drift against the repository, tokens used, and an honest gap where a number cannot be had. |
-| T15 | S19 | writer `gentle-ai-worker`, own commit | not committed | Package the team skill and load it on every launch with `--skill`, teaching the agent to catch up on its own and to ask for a relief it cannot perform. |
-| T16 | S21 | writer `gentle-ai-worker`, own commit, then independent verify (mirrored prompt path) | not committed | Let `--swap` reuse an already validated handoff with `--use-existing`, keeping the HEAD check and stating the document's age. |
-| T17 | S22 | writer `gentle-ai-worker`, own commit | not committed | Write `docs/cli.md` with every option and add the test that fails when the CLI grows and the document does not. |
-| T18 | S16 | writer `gentle-ai-worker` | not committed | Refuse a launch whose bootstrap file does not match the configured mode, naming the file, and report the same disagreement from `doctor`. |
-| T19 | S20 | writer `gentle-ai-worker` | not committed | `init` names the live tabs outside the team and suggests the role it would add, writing nothing. |
-
-**S17 — `recover` on demand, inside a running session.** A role that has been parked or idle for a long time needs to catch up on the world, not to be replaced. Today the recovery protocol only reaches an agent at launch, where nobody is watching, or forced by a swap, which destroys the session.
-Observable: `agentorch recover <role>` sends a catch-up message to that role's live agent and returns without touching the tab, the session id, the registry or the handoff; the agent answers in its own tab with what is done, what is pending and what the repository contradicts, after comparing its handoff's `git.head` with the current HEAD. The target is confirmed to be that role's own tab, not merely a terminal running the configured executable: a registry entry whose tab id no longer matches must be refused, because sending the wrong role's handoff path to another agent is worse than not sending; a tab that was merely renamed is a warning, not a refusal, since the id is the identity and the name is the human's label. A role with no running agent is refused with a message pointing at `start`, the terminal running the command is refused like the swap's guard, and an agent that is mid-turn is reported as queued rather than as answered. When there is no handoff, or Engram has nothing for the role, the prompt says to report that and continue instead of asking for a comparison that cannot be made. The prompt is its own text, neither the launch bootstrap nor `RELEVO`, and it names the project and the role.
-| T11 | S16 | writer `gentle-ai-worker` | not committed | Make the bootstrap files follow `pi.bootstrap` at launch, or fail loudly when they disagree; surface it in `doctor`. |
-
-**Open design question (not a spec yet)**: `discover --live` *sees* every live tab, but `init` never promotes an unlisted live tab into a role. Detection exists only when the skeleton is seeded (no `agents.json`); afterwards `init` reconciles what the file declares and stays silent about the rest, which is why a live `Coach` tab went unnoticed across two runs. Whether `init` (or `discover`) should report "this project has N named tabs with a live agent that are not in the team" is a product decision, deliberately not taken here. Evidence: `src/agentorch/commands/init.py` (`unfilled_roles`, `start_interview`) and the career-ops case in L8/L11.
+| T1 | S1-S5 | done | `4cd0bdc`, `9c77c33` | `start` launches with close+`--argv`, honours `--fresh`, takes the ids from `ls`, and reports what it did. |
+| T2 | S6 | done | `4cd0bdc` | An accepted handoff must state the HEAD measured now. |
+| T3 | S7, S8 | done | `4cd0bdc` | Team limit 10 and configurable; the setup tab and the caller are never roles; a cut tab is named. |
+| T4 | S9 | done | `2e37b31` | Every message, help text and prompt in English. |
+| T5 | S10 | done | `85c700c`, `958052e` | A named tab excluded for having no agent is reported once, never about the caller. |
+| T6 | S11 | done | `d7cc78f` | The interview asks only the pending roles, and the skill says the same. |
+| T7 | S12 | done | `d7cc78f` | An interview keeps the focus and the logs in its own tab. |
+| T8 | S13 | done | `16ca274` | A role is pending while either field is empty, and the prompt says which. |
+| T9 | S14 | done | `e3eb3a2` | `agentorch ls`: the declared team against the live workspace, counts summarised. |
+| T10 | S15 | superseded | `9c0f53c`, reverted in `69ab89b` | `start` recreated a closed tab by default; closing a tab parks a role, so it was undone. |
+| T11 | S16 | dropped | - | Folded into T18, which owns the same spec. |
+| T12 | S17 | done | `601b2a1`, `5417ac0` | `agentorch recover <role>`: a catch-up inside a live session, no swap and no relaunch. |
+| T14 | S18 | done | `266a634`, `e69357c` | `status` shows handoff age, drift and tokens; the percentage only when the window is real. |
+| T15 | S19 | done | `1c75206` | The team skill ships with every launch and teaches catching up and asking for a relief. |
+| T16 | S21 | done | `659b6ab` | `--swap --use-existing` reuses a validated handoff, keeping the HEAD check. |
+| T17 | S22 | done | `ebf41b2` | `docs/cli.md` plus the drift test that fails when the CLI grows undocumented. |
+| T18 | S16 | done | `88a39e1` | The bootstrap file wins: a launch refuses a stale one and points at `init`; `doctor` reports it. |
+| T19 | S20 | done | `b592d7c` | `init` names the live tabs outside the team and the role it would add, writing nothing. |
 
 ## Log
-
 **L1** (user, verbatim): "Lanza los subagentes que necesites para analizar, planificar y luego implementar mejoras"
 
+
 **L2** (context, end-to-end run of 2026-11-24 in `/home/albestio/Code/tabcabin`): `init` with a real interview and `handoff run <role> --swap` both work. Two defects remained open and two more were found in that run: `start.py` typed its launch into a shell, so `start` could not work and its two `--recreate` tests were the only reds; an agent-written handoff carried a stray `git_branch: null`; and a swap launched the successor with the configured `greet` bootstrap, so it never read the handoff it had just been given (now `_swap` writes `recover`, and the successor verified `git.head` and declared `READY`).
+
 
 **L3** (user, verbatim): "Me refiero principalmente a arreglar bugs. Tienes acceso a las sesiones de tabcabin via intercom"
 → Scope decision: only defects. Refinements (dead code, inlining, renaming) are out unless a task needs them to land its fix. The tabcabin agents are available over intercom as field evidence and as the place to reproduce a fix, which supersedes the earlier restriction that this conversation must not talk to tabcabin.
 
+
 **L4** (correction, 2026-11-24): the `git_branch: null` defect reported in L2 does **not** exist as stated. The document stores the branch at `git.branch`; the inspection script read a non-existent top-level `git_branch` key and printed `None`. `validate_handoff` (`src/agentorch/handoff.py:148`) already rejects an empty or non-string `branch`.
+
 
 **L5** (evidence, 2026-11-24): the two red `start` tests failed for two different reasons. `test_start_recreate_fresh_starts_a_new_session` was a real bug: `_recreate` ignored `fresh`. `test_start_recreate_resumes_the_old_session` was a stale expectation: it asserted `entry["pid"] == 9000`, the fake's artifact for the old typed launch.
 
+
 **L6** (evidence, audit `mwv9q8mo-1-ccfu`, 2026-11-24): the two reds were not caused by the typed transport. `_recreate` already used `tab.new --argv`; it failed because it ignored `fresh` (S2) and because it trusted `tab.new`'s echo instead of re-reading `ls` (S4). The typed path only affected the *other* branch, the one with a live shell. Also `start.py:110` always logged `reanudada` (S5), and `RELEVO` never pinned the `git` object, which is how a stray `git_branch: null` survived validation (S6). Dead code (`send_keys`, `terminals_of_space`, `bootstrap.py import json`) is a refinement, out of scope: only what a fix leaves behind gets removed. `is_shell` stays: S3 needs the refusal for a terminal running something unknown.
+
 
 **L7** (decision, 2026-11-24): S6 narrowed while briefing T2. Rejecting unknown top-level keys is a refinement that widens the contract's blast radius for little gain; the defect is that the accepted handoff's `git` block was never compared with the repository. The stray `git_branch: null` was only the symptom.
 
-**L22** (user decisions, 2026-11-25, asked and answered with the trade-offs spelled out): (a) when the bootstrap file on disk disagrees with `pi.bootstrap`, the launch **refuses and names the file** — the file wins, nothing is overwritten, and `agentorch init` is the explicit way to reconcile; (b) `init` **reports and suggests** live tabs outside the team instead of adding them — the configuration changes only by human hand.
 
-**L21** (user questions, 2026-11-25): can an agent run `recover` on itself, is `recover` the same as `handoff run`, what to do about the `<hc from=…>` envelope, and does `handoff run` need the `run`. Answers recorded in the conversation: `recover` and `handoff run` both refuse to target the terminal running the command, so neither can be self-service — the agent executes the protocol itself, which is what a skill gives; `handoff run` writes and validates a document while `recover` reads and reports, so they are adjacent but not the same; the envelope is added by `hc` and Pi does not strip it, so it arrives literally and is harmless provenance; and `handoff` has a second subcommand (`validate`), so `run` earns its keep. Also: the transcript carries `usage.totalTokens` and `model` but no context window, which is why S18 degrades instead of inventing a percentage.
+**L8** (field bug, 2026-11-24, project `career-ops`): the interview did not list the `Coach` tab although it had a live Pi session. Reproduced read-only against that workspace: `inspect_space` returns seven tabs, all `renamed` with `has_agent`, and `skeleton_from_live` returns five because of `ordered[:max_tabs]` with the default 5. `Coach` is the sixth; `Agentorch` is the seventh, a setup tab left renamed by a previous interview. The cap fails both ways: it drops a real role and does not filter the setup tab.
 
-**L20** (user, verbatim): "Estoy satisfecho con el comportamiento actual de start. Las tabs cerradas no se levantan solas, las sesiones cerradas sí se levantan en las tabs abiertas. Va bien para poner a dormir agentes que no están trabajando en esta parte del proyecto, y que se pueden resucitar más adelante con un init." — and then, choosing among the options put to him: "Revertir S15: cerrar tab = dormir el agente".
-This reverses L18's decision. Closing a tab is a deliberate act that parks a role; `start` must not undo it. Reverted in `69ab89b`, S15 rewritten to say the opposite, T10 superseded.
-
-**L19** (finding, 2026-11-25, while answering how to switch to `recover`): `pi.bootstrap` is rendered into the bootstrap files by `init` and by the swap only; `start` never rewrites them, so editing the configuration and running `start` launches the agent with the previous prompt in silence. Recorded as S16/T11.
-
-**L18** (user, verbatim): "y no tendría sentido que el comportamiento de --recreate fuera un fallback de start? Me refiero a que si start falla en algún role porque no existe la tab, que automáticamente se recreara la tab y se restableciera la sesión"
-→ Accepted as S15/T10, with one guard kept: a terminal running something that is not a shell is still refused without closing anything, because that tab may hold someone else's work. The flag inverts rather than disappears: `--no-recreate` is the refusal, `--recreate` stays accepted as the default so existing muscle memory and aliases keep working.
-
-**L17** (user, verbatim): "Necesitamos un comando agentorch ls , que liste los agentes registrados en el json. Así es facil comprobar si corresponde al número de agentes en las tabs"
-→ S14/T9. It is not a duplicate of `status` (registry against Herdr) nor of `discover` (live tabs): the gap is the declared team in `agents.json` joined with adoption, which is where a role like `Coach` disappeared.
-
-**L16** (independent verify `mwvtwhy7-4-p427`, 2026-11-25): S9, S11 and S12 PASS, S10 PARTIAL with one blocker, S10's own-tab exclusion missing on two of four call sites, and one undisclosed change: `doctor --json`'s `checks[].name` moved from `repositorio`/`permisos` to `repository`/`permissions` alongside the rest of the English sweep. Nothing reads it, but it is a machine-readable value that the commit message did not mention — same class as the `status` state tokens, which it did. Its residual risk on S11 became S13/T8; the S10 blocker and the own-tab gaps were fixed in `958052e`.
-
-**L15** (user, verbatim): "Algo que noto y no me gusta es que cuando mato la sesión de interview, manda el foco al tab de Orchestrator. Si estoy terminando la interview, lo normal es quedarme dentro de esa tab tras cerrar la sesión de Pi, para ver los logs de agentorch"
-→ S12/T7. This supersedes the earlier decision, recorded in `agentorch/poc-state`, that focus always returns to `tabs[0]`: it holds for runs without an interview, not for the pane where the human just finished one.
-
-**L14** (user, 2026-11-25, live in `career-ops`): "Digiste que solo detectaría Coach, pero parece que va a entrevistar a todos los agentes brevemente". Confirmed in the code: the prompt asserts that every role is empty and the setup skill says "Ask every agent in the list", so a config with one pending role re-interviews and invites rewriting the five already written. Corrected in the running interview by an intercom message; recorded as S11/T6. My earlier claim that only Coach would be interviewed was wrong.
-
-**L13** (user report, 2026-11-25, project `career-ops`): "faltó por detectar un agente por el límite de max". Measured read-only: the space holds five tabs running `pi` and two without a program — `Coach` and a tab named `7`. With five live agents and a limit of 10 nothing is cut, so the cause is not `max_tabs`: `Coach`'s terminal has no agent, and S7 requires `has_agent`, so the skeleton drops it. The real gap is that this exclusion is silent → S10 / T5.
-
-**L12** (independent verify `mwvahtfd-5-c6bi`, 2026-11-24): S1-S8 all PASS, S9 out of scope. It found two blockers in the just-committed tree, both now fixed: a recreated tab was resolved **by name only**, so two tabs sharing a role name made the registry adopt the other one (reproduced: it ended on a bare shell and orphaned the new session), and a failing `tab.new` escaped `start()` while the registry kept the id of the tab that had just been closed. Resolution is now by identity: the new tab is the one `ls` shows with that name and whose id was not in the space before the create, with the echo only as a last resort; and a failed create clears the entry before reporting. Two tests pin it. Still open from that report: `discover` never passes `own_tab_id`, so the invoking tab can be proposed as a role; the `--argv` session id in S2 is not asserted by the existing tests (only the registry one); `_create_tab`'s `config` argument is unused; and the suite's 169-green claim depends on `pi` being on `PATH` for `test_a_loose_tab_in_the_space_is_not_a_team_tab`.
-
-**L11** (user, verbatim): "Pensaba que teníamos una forma de detectar agentes adicionales. Guardamos y seguimos mañana"
-→ Recorded as an open design question, not a defect: live-tab detection exists, live-tab *promotion* does not. Session closed with T4 (S9, English texts) pending for the next session, plus the three carried-over items noted in L10 and the two T3 risks (the echoed-id fallback has no test; excluding the own tab can leave a skeleton without an orchestrator when `init` runs from a team tab).
-
-**L10** (user, verbatim): "por cierto, creo que en los logs de agentorch debería tener todo textos en inglés"
-→ S9 added. Sequenced as its own unit and its own commit, after the bug fixes, because it rewrites every message the suite asserts on and would otherwise bury those fixes in a mechanical diff. `RELEVO` is included: it is a prompt agentorch authors, and it changes what the agents read (risk item 3), so it gets verified like any other contract.
 
 **L9** (user, verbatim): "Max tabs debería ser 10, y debería poder cambiarse desde alguna config sencillamente"
 → S8 added: the limit becomes 10 by default and configurable in the project's own configuration, on top of the exclusion of the setup tab and the loud reporting that S7 already required.
 
-**L8** (field bug, 2026-11-24, project `career-ops`): the interview did not list the `Coach` tab although it had a live Pi session. Reproduced read-only against that workspace: `inspect_space` returns seven tabs, all `renamed` with `has_agent`, and `skeleton_from_live` returns five because of `ordered[:max_tabs]` with the default 5. `Coach` is the sixth; `Agentorch` is the seventh, a setup tab left renamed by a previous interview. The cap fails both ways: it drops a real role and does not filter the setup tab.
+
+**L10** (user, verbatim): "por cierto, creo que en los logs de agentorch debería tener todo textos en inglés"
+→ S9 added. Sequenced as its own unit and its own commit, after the bug fixes, because it rewrites every message the suite asserts on and would otherwise bury those fixes in a mechanical diff. `RELEVO` is included: it is a prompt agentorch authors, and it changes what the agents read (risk item 3), so it gets verified like any other contract.
+
+
+**L11** (user, verbatim): "Pensaba que teníamos una forma de detectar agentes adicionales. Guardamos y seguimos mañana"
+→ Recorded as an open design question, not a defect: live-tab detection exists, live-tab *promotion* does not. Session closed with T4 (S9, English texts) pending for the next session, plus the three carried-over items noted in L10 and the two T3 risks (the echoed-id fallback has no test; excluding the own tab can leave a skeleton without an orchestrator when `init` runs from a team tab).
+
+
+**L12** (independent verify `mwvahtfd-5-c6bi`, 2026-11-24): S1-S8 all PASS, S9 out of scope. It found two blockers in the just-committed tree, both now fixed: a recreated tab was resolved **by name only**, so two tabs sharing a role name made the registry adopt the other one (reproduced: it ended on a bare shell and orphaned the new session), and a failing `tab.new` escaped `start()` while the registry kept the id of the tab that had just been closed. Resolution is now by identity: the new tab is the one `ls` shows with that name and whose id was not in the space before the create, with the echo only as a last resort; and a failed create clears the entry before reporting. Two tests pin it. Still open from that report: `discover` never passes `own_tab_id`, so the invoking tab can be proposed as a role; the `--argv` session id in S2 is not asserted by the existing tests (only the registry one); `_create_tab`'s `config` argument is unused; and the suite's 169-green claim depends on `pi` being on `PATH` for `test_a_loose_tab_in_the_space_is_not_a_team_tab`.
+
+
+**L13** (user report, 2026-11-25, project `career-ops`): "faltó por detectar un agente por el límite de max". Measured read-only: the space holds five tabs running `pi` and two without a program — `Coach` and a tab named `7`. With five live agents and a limit of 10 nothing is cut, so the cause is not `max_tabs`: `Coach`'s terminal has no agent, and S7 requires `has_agent`, so the skeleton drops it. The real gap is that this exclusion is silent → S10 / T5.
+
+
+**L14** (user, 2026-11-25, live in `career-ops`): "Digiste que solo detectaría Coach, pero parece que va a entrevistar a todos los agentes brevemente". Confirmed in the code: the prompt asserts that every role is empty and the setup skill says "Ask every agent in the list", so a config with one pending role re-interviews and invites rewriting the five already written. Corrected in the running interview by an intercom message; recorded as S11/T6. My earlier claim that only Coach would be interviewed was wrong.
+
+
+**L15** (user, verbatim): "Algo que noto y no me gusta es que cuando mato la sesión de interview, manda el foco al tab de Orchestrator. Si estoy terminando la interview, lo normal es quedarme dentro de esa tab tras cerrar la sesión de Pi, para ver los logs de agentorch"
+→ S12/T7. This supersedes the earlier decision, recorded in `agentorch/poc-state`, that focus always returns to `tabs[0]`: it holds for runs without an interview, not for the pane where the human just finished one.
+
+
+**L16** (independent verify `mwvtwhy7-4-p427`, 2026-11-25): S9, S11 and S12 PASS, S10 PARTIAL with one blocker, S10's own-tab exclusion missing on two of four call sites, and one undisclosed change: `doctor --json`'s `checks[].name` moved from `repositorio`/`permisos` to `repository`/`permissions` alongside the rest of the English sweep. Nothing reads it, but it is a machine-readable value that the commit message did not mention — same class as the `status` state tokens, which it did. Its residual risk on S11 became S13/T8; the S10 blocker and the own-tab gaps were fixed in `958052e`.
+
+
+**L17** (user, verbatim): "Necesitamos un comando agentorch ls , que liste los agentes registrados en el json. Así es facil comprobar si corresponde al número de agentes en las tabs"
+→ S14/T9. It is not a duplicate of `status` (registry against Herdr) nor of `discover` (live tabs): the gap is the declared team in `agents.json` joined with adoption, which is where a role like `Coach` disappeared.
+
+
+**L18** (user, verbatim): "y no tendría sentido que el comportamiento de --recreate fuera un fallback de start? Me refiero a que si start falla en algún role porque no existe la tab, que automáticamente se recreara la tab y se restableciera la sesión"
+→ Accepted as S15/T10, with one guard kept: a terminal running something that is not a shell is still refused without closing anything, because that tab may hold someone else's work. The flag inverts rather than disappears: `--no-recreate` is the refusal, `--recreate` stays accepted as the default so existing muscle memory and aliases keep working.
+
+
+**L19** (finding, 2026-11-25, while answering how to switch to `recover`): `pi.bootstrap` is rendered into the bootstrap files by `init` and by the swap only; `start` never rewrites them, so editing the configuration and running `start` launches the agent with the previous prompt in silence. Recorded as S16/T11.
+
+
+**L20** (user, verbatim): "Estoy satisfecho con el comportamiento actual de start. Las tabs cerradas no se levantan solas, las sesiones cerradas sí se levantan en las tabs abiertas. Va bien para poner a dormir agentes que no están trabajando en esta parte del proyecto, y que se pueden resucitar más adelante con un init." — and then, choosing among the options put to him: "Revertir S15: cerrar tab = dormir el agente".
+This reverses L18's decision. Closing a tab is a deliberate act that parks a role; `start` must not undo it. Reverted in `69ab89b`, S15 rewritten to say the opposite, T10 superseded.
+
+
+**L21** (user questions, 2026-11-25): can an agent run `recover` on itself, is `recover` the same as `handoff run`, what to do about the `<hc from=…>` envelope, and does `handoff run` need the `run`. Answers recorded in the conversation: `recover` and `handoff run` both refuse to target the terminal running the command, so neither can be self-service — the agent executes the protocol itself, which is what a skill gives; `handoff run` writes and validates a document while `recover` reads and reports, so they are adjacent but not the same; the envelope is added by `hc` and Pi does not strip it, so it arrives literally and is harmless provenance; and `handoff` has a second subcommand (`validate`), so `run` earns its keep. Also: the transcript carries `usage.totalTokens` and `model` but no context window, which is why S18 degrades instead of inventing a percentage.
+
+
+**L22** (user decisions, 2026-11-25, asked and answered with the trade-offs spelled out): (a) when the bootstrap file on disk disagrees with `pi.bootstrap`, the launch **refuses and names the file** — the file wins, nothing is overwritten, and `agentorch init` is the explicit way to reconcile; (b) `init` **reports and suggests** live tabs outside the team instead of adding them — the configuration changes only by human hand.
+
+
+**L23** (decision closed, 2026-11-25): the open question about promoting live tabs outside the team was answered in L22 and implemented in `b592d7c`: `init` reports them and names the role it would add, writing nothing. The question no longer lives in `## Specs`.
