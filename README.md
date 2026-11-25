@@ -1,7 +1,11 @@
 # torcha
 
-Bootstrap a team of [Pi](https://pi.dev) coding agents in
-[Herdr](https://github.com/) workspaces.
+[![tests](https://github.com/albestio/torcha/actions/workflows/ci.yml/badge.svg)](https://github.com/albestio/torcha/actions/workflows/ci.yml)
+
+Give your coding agents a team, a memory and a handover.
+
+`torcha` bootstraps a team of [Pi](https://pi.dev) coding agents in Herdr
+workspaces.
 
 `torcha init` prepares a workspace for the project in the current directory:
 it creates or recovers a Herdr space, creates the configured tabs, starts one Pi

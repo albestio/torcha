@@ -25,6 +25,12 @@ dynamic = ["version"]
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
+[project.urls]
+Homepage = "https://github.com/albestio/torcha"
+Repository = "https://github.com/albestio/torcha"
+Issues = "https://github.com/albestio/torcha/issues"
+Changelog = "https://github.com/albestio/torcha/blob/main/CHANGELOG.md"
+
 [project.scripts]
 torcha = "torcha.cli:main"
 
