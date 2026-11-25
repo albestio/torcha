@@ -44,6 +44,9 @@ def main() -> int:
         if name == "init":
             child.add_argument("--plain", action="store_true",
                                help="Do not open the interview; materialise directly.")
+            child.add_argument("--json", action="store_true",
+                               help="JSON output for scripts: the live tabs outside "
+                                    "the team and the role each one would add.")
         child.add_argument("--project", metavar="PATH", default=argparse.SUPPRESS,
                            help="Project directory (the current one by default).")
         if name == "discover":
@@ -107,7 +110,8 @@ def main() -> int:
         error(str(exc))
         return 1
     if args.command == "init":
-        call = lambda: init(plain=getattr(args, "plain", False))
+        call = lambda: init(plain=getattr(args, "plain", False),
+                            as_json=getattr(args, "json", False))
     elif args.command == "discover":
         call = lambda: discover(live=getattr(args, "live", False),
                                 as_json=getattr(args, "json", False))

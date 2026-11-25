@@ -658,7 +658,7 @@ def test_an_interview_keeps_the_focus_and_the_logs_in_this_tab(project, monkeypa
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
 
-    def fake_interview(candidates, seen=None):
+    def fake_interview(candidates, seen=None, say=None):
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
@@ -685,7 +685,8 @@ def test_a_configuration_with_nothing_pending_still_focuses_the_orchestrator(
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates, seen=None: called.setdefault("ran", True))
+                        lambda candidates, seen=None, say=None:
+                        called.setdefault("ran", True))
 
     assert project.module.init() == 0
 
@@ -2313,7 +2314,8 @@ def test_a_written_team_needs_no_interview_and_a_seed_keeps_its_wording(
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates, seen=None: called.setdefault("ran", True))
+                        lambda candidates, seen=None, say=None:
+                        called.setdefault("ran", True))
 
     assert project.module.init_module.unfilled_roles() == []
     assert project.module.init() == 0
@@ -2430,7 +2432,7 @@ def test_init_opens_the_interview_when_live_tabs_exist(project, monkeypatch):
 
     called = {}
 
-    def fake_interview(candidates, seen=None):
+    def fake_interview(candidates, seen=None, say=None):
         called["ran"] = True
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
@@ -2451,7 +2453,8 @@ def test_init_skips_the_interview_with_plain(project, monkeypatch):
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates, seen=None: called.setdefault("ran", True))
+                        lambda candidates, seen=None, say=None:
+                        called.setdefault("ran", True))
 
     assert project.module.init(plain=True) == 0
     assert "ran" not in called
@@ -2463,7 +2466,8 @@ def test_init_skips_the_interview_without_a_tty(project, monkeypatch):
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: False)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates, seen=None: called.setdefault("ran", True))
+                        lambda candidates, seen=None, say=None:
+                        called.setdefault("ran", True))
 
     assert project.module.init() == 0
     assert "ran" not in called
@@ -2474,7 +2478,7 @@ def test_a_failed_interview_refuses_to_apply(project, monkeypatch):
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
 
-    def fake_interview(candidates, seen=None):
+    def fake_interview(candidates, seen=None, say=None):
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
@@ -2621,7 +2625,7 @@ def test_ids_written_during_the_interview_are_read_afterwards(project, monkeypat
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
 
-    def fake_interview(candidates, seen=None):
+    def fake_interview(candidates, seen=None, say=None):
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
@@ -3815,6 +3819,196 @@ def test_the_tab_running_the_command_is_never_reported_or_proposed(
     assert origin == "named live tabs"
     assert [tab["name"] for tab in tabs] == ["Orchestrator"]
     assert "no agent running" not in capsys.readouterr().err
+
+
+# --- the tabs the configuration does not declare (S20) ----------------------
+
+def team_space(folder: str) -> dict:
+    """One space where the team declared in TABS is already live."""
+    return {"id": "sp01", "name": "proj", "folder": folder, "active": True,
+            "tabs": [role_tab(index, tab["name"], folder)
+                     for index, tab in enumerate(TABS, start=1)]}
+
+
+def add_live_tab(space: dict, name: str, app="pi", pid=None) -> dict:
+    """One more tab in the space, with its own tab, terminal and pane ids."""
+    tab = role_tab(len(space["tabs"]) + 1, name, space["folder"], app=app)
+    if pid is not None:
+        tab["terminals"][0]["pid"] = pid
+    space["tabs"].append(tab)
+    return tab
+
+
+def test_init_names_the_live_tabs_outside_the_team_and_the_role_it_would_add(
+        project, capsys):
+    """S20: the command that reconciles the team says what the team leaves out."""
+    space = team_space(str(project.root))
+    add_live_tab(space, "Coach")
+    add_live_tab(space, "Auditor")
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+
+    assert project.module.init() == 0
+
+    out = capsys.readouterr().out
+    reported = [line for line in out.splitlines() if "outside the team" in line]
+    assert len(reported) == 1                    # one line, not one line per tab
+    line = reported[0]
+    for name, key in (("Coach", "coach"), ("Auditor", "auditor")):
+        assert f"{name} would add role '{key}'" in line
+        assert f"name '{name}'" in line
+    # After the run's summary, and never about a tab the team declares.
+    assert out.index(line) > out.index("Tabs verified:")
+    for declared in ("Orquestador", "Worker 1", "Worker 4"):
+        assert declared not in line
+
+
+def test_the_report_of_tabs_outside_the_team_writes_nothing(project, capsys):
+    """A report, not an adoption: the configuration is the human's to edit."""
+    space = team_space(str(project.root))
+    add_live_tab(space, "Coach")
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+    config = project.root / ".agentorch/agents.json"
+    before = config.read_bytes()
+
+    assert project.module.init() == 0
+
+    assert "outside the team" in capsys.readouterr().out    # it did report
+    assert config.read_bytes() == before                    # byte for byte
+    assert project.commands().count("tab.new") == 0         # no tab for Coach
+    entries = project.registry()["herdr"]["tabs"]
+    assert set(entries) == {tab["key"] for tab in TABS}     # no role recorded
+    selected = [options["id"] for options in project.options_for("tab.select")]
+    assert selected == [entries["orchestrator"]["tab_id"]]  # focus unmoved
+
+
+def test_the_report_never_names_a_tab_without_an_agent(project, capsys):
+    """A named tab with no agent is `report_tabs_without_agent`'s subject."""
+    space = team_space(str(project.root))
+    add_live_tab(space, "Coach")
+    add_live_tab(space, "Idle", app=None)
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+
+    assert project.module.init() == 0
+
+    captured = capsys.readouterr()
+    line = next(line for line in captured.out.splitlines()
+                if "outside the team" in line)
+    assert line.count("would add role") == 1
+    assert "Coach would add role 'coach'" in line
+    assert "Idle" not in captured.out
+
+
+def test_the_two_reports_partition_the_live_tabs(project, capsys):
+    """One predicate, two subjects: with an agent (outside the team) or without."""
+    folder = str(project.root)
+    space = team_space(folder)
+    caller = add_live_tab(space, "Scratch")
+    caller["terminals"][0]["pid"] = os.getpid()
+    add_live_tab(space, "Coach")
+    add_live_tab(space, "Idle", app=None)
+    add_live_tab(space, "Agentorch")
+    add_live_tab(space, "7")
+    own_id = caller["id"]
+    tabs = project.module.live.inspect_space(space, [])
+
+    outside = {item["tab"].name for item in
+               project.module.live.outside_team(tabs, TABS, set(), own_id)}
+    idle = {tab.name for tab in project.module.live.report_tabs_without_agent(
+        tabs, own_id)}
+
+    assert outside == {"Coach"}
+    assert idle == {"Idle"}
+    assert outside.isdisjoint(idle)
+
+
+def test_the_report_skips_the_setup_tab_the_numeric_tab_and_the_caller(
+        project, capsys):
+    """The tabs excluded on purpose stay out of it, as everywhere else."""
+    space = team_space(str(project.root))
+    add_live_tab(space, "Agentorch")            # the setup marker
+    add_live_tab(space, "7")                    # Herdr's own default name
+    caller = add_live_tab(space, "Scratch")      # this command's own tab
+    caller["terminals"][0]["pid"] = os.getpid()
+    add_live_tab(space, "Coach")
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+
+    assert project.module.init() == 0
+
+    line = next(line for line in capsys.readouterr().out.splitlines()
+                if "outside the team" in line)
+    assert line.count("would add role") == 1
+    assert "Coach would add role 'coach'" in line
+    for silent in ("Agentorch", "Scratch", "7 would add"):
+        assert silent not in line
+
+
+def test_init_json_carries_the_tabs_outside_the_team(project, capsys):
+    space = team_space(str(project.root))
+    add_live_tab(space, "Coach")
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+
+    assert project.module.init(as_json=True) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)           # stdout holds the object alone
+    assert payload["space_id"] == "sp01"
+    assert payload["outside_team"] == [{
+        "name": "Coach", "tab_id": "tb-06", "terminal_id": "t-06",
+        "app": "pi",
+        "suggested_role": {"key": "coach", "name": "Coach"}}]
+    # The human line is not printed as well: the object carries the list.
+    assert "outside the team" not in captured.out
+    # This run's narration moves to stderr, so stdout stays machine-readable.
+    assert "Initialisation and reconciliation complete." in captured.err
+
+
+def test_init_json_keeps_stdout_for_the_object_during_an_interview(
+        project, monkeypatch, capsys):
+    """The interview's narration moves to stderr too: stdout stays parseable."""
+    (project.root / ".agentorch/agents.json").unlink()
+    monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
+    project.state.write_text(json.dumps({"spaces": [], "calls": []}))
+
+    def fake_interview(candidates, seen=None, say=None):
+        (project.root / ".agentorch/agents.json").write_text(json.dumps({
+            "pi": {"executable": "pi", "bootstrap": "greet"}, "tabs": TABS}))
+        return project.module.init_module.Interview(ran=True)
+
+    monkeypatch.setattr(project.module.init_module, "start_interview", fake_interview)
+
+    assert project.module.init(as_json=True) == 0
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["outside_team"] == []
+    assert "Initialisation and reconciliation complete." in captured.err
+
+
+def test_init_accepts_the_json_flag_from_the_command_line(project):
+    space = team_space(str(project.root))
+    add_live_tab(space, "Coach")
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "agentorch", "init", "--json", "--plain",
+         "--project", str(project.root)],
+        cwd=project.root, env=env, capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert [item["suggested_role"]["key"] for item in payload["outside_team"]] \
+        == ["coach"]
+
+
+def test_a_workspace_inside_the_team_says_nothing_extra(project, capsys):
+    space = team_space(str(project.root))
+    project.state.write_text(json.dumps({"spaces": [space], "calls": []}))
+
+    assert project.module.init() == 0
+    assert "outside the team" not in capsys.readouterr().out
 
 
 # --- the main session -------------------------------------------------------

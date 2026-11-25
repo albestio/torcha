@@ -55,6 +55,18 @@ Only `.agentorch/` in the target project:
 `init` writes a default `agents.json` if there is none. Edit it to change the
 tabs, their names and their roles.
 
+That file is seeded from what the workspace already runs — the named tabs with a
+live agent — and after that `init` only reports. A named live tab with an agent
+that the configuration does not declare is named at the end of every run, after
+the summary, with the role it would add: the key that role name derives and the
+live name verbatim, which is exactly what the skeleton would write. Nothing is
+added to the file, no tab is created for it and the focus does not move; the edit
+is yours. `agentorch init --json` carries the same list, with the tab and
+terminal ids, for a script. A named tab whose agent is gone is a different
+warning, the one that points at `agentorch start <role> --recreate`, and the tabs
+that are never roles — the setup tab, Herdr's bare numeric default and the tab
+running the command — are not reported at all.
+
 ## Configuration
 
 ```json

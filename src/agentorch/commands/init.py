@@ -17,15 +17,15 @@ from ..config import DEFAULT_TABS, configured_max_tabs, load_config, write_defau
 from ..discovery import choose, role_name, scan, slug
 from ..errors import AgentorchError
 from ..git import ensure_git_repo
-from ..herdr import (extract_tab_ids, first_string, get_spaces, parse_json_output,
-                     run_app, space_id, spaces_for_project, tab_app, tab_id,
-                     tab_name, tabs_of, terminal_folders, terminal_pid,
-                     wait_for_apps)
+from ..herdr import (extract_tab_ids, first_string, get_spaces, own_terminal,
+                     parse_json_output, run_app, space_id, spaces_for_project,
+                     tab_app, tab_id, tab_name, tabs_of, terminal_folders,
+                     terminal_pid, wait_for_apps)
 # La tab que ejecuta el comando. `discover` necesita la misma búsqueda, así que
 # vive en `live`; el nombre se queda local porque es el que la suite intercepta.
-from ..live import (inspect_space, names_the_role, own_tab as _own_tab,
-                    proposal_from_live, report_tabs_without_agent, role_tabs,
-                    skeleton_from_live)
+from ..live import (inspect_space, names_the_role, outside_team,
+                    own_tab as _own_tab, proposal_from_live,
+                    report_tabs_without_agent, role_tabs, skeleton_from_live)
 from ..commands.discover import live_payload
 from ..output import error, log, note
 from ..registry import registry_template, save_registry, timestamp, write_json_atomic
@@ -236,7 +236,29 @@ def _interview_prompt(skeleton: list[dict[str, str]], payload: dict,
     return "\n".join(lines)
 
 
-def _mark_setup_tab(tab: dict | None, team_tab_ids: set[str]) -> None:
+def _own_tab_id_from(tabs: list[dict]) -> str | None:
+    """The tab this command runs in, resolved against the listing already read.
+
+    Asking Herdr for another listing here would be a poll, not a measurement: the
+    run has just reconciled the workspace, and this is that same state. The
+    terminal is the identity; a run outside Herdr has none and nothing is
+    excluded.
+    """
+    try:
+        terminal = own_terminal()
+    except OSError:
+        # A report never gets to fail a run that has already finished.
+        return None
+    if not terminal:
+        return None
+    for tab in tabs:
+        for item in tab.get("terminals") or []:
+            if isinstance(item, dict) and item.get("terminal") == terminal:
+                return tab_id(tab)
+    return None
+
+
+def _mark_setup_tab(tab: dict | None, team_tab_ids: set[str], say=log) -> None:
     """Name the tab running the interview, so it is findable while debugging.
 
     Never a team tab: renaming one would destroy the role's name, which is what
@@ -251,7 +273,7 @@ def _mark_setup_tab(tab: dict | None, team_tab_ids: set[str]) -> None:
         return
     try:
         run_app(["do", "tab.rename", "--id", identifier, "--name", "Agentorch"])
-        log("Tab renamed to 'Agentorch' so it can be identified while debugging.")
+        say("Tab renamed to 'Agentorch' so it can be identified while debugging.")
     except AgentorchError as exc:
         note(f"Could not rename the interview tab: {exc}")
 
@@ -270,8 +292,13 @@ def _run_interview(path: Path, executable: str) -> int:
 
 
 def start_interview(candidates,
-                    seen: set[tuple[str, str | None]] | None = None) -> Interview:
-    """Hand the setup to a Pi session. The report says whether it took this pane."""
+                    seen: set[tuple[str, str | None]] | None = None,
+                    say=log) -> Interview:
+    """Hand the setup to a Pi session. The report says whether it took this pane.
+
+    `say` is the voice of the run that asked for the interview: with `--json` it
+    is stderr, so stdout carries the machine-readable object and nothing else.
+    """
     payload, live_tabs = live_payload(candidates)
     if not payload.get("tabs"):
         return Interview(pending=tuple(unfilled_roles()))
@@ -298,7 +325,7 @@ def start_interview(candidates,
         if not tabs:
             return Interview(pending=tuple(unfilled_roles()))
         write_default_config(tabs)
-        log(f"Configuration skeleton created: {project.CONFIG_FILE}")
+        say(f"Configuration skeleton created: {project.CONFIG_FILE}")
     skeleton_tabs = json.loads(
         project.CONFIG_FILE.read_text(encoding="utf-8")).get("tabs") or []
     pending = _pending_keys(skeleton_tabs)
@@ -315,9 +342,9 @@ def start_interview(candidates,
         note(f"'{executable}' is not on PATH: the interview cannot be opened.")
         return Interview(pending=tuple(pending))
 
-    _mark_setup_tab(own_tab, team_tab_ids)
+    _mark_setup_tab(own_tab, team_tab_ids, say)
 
-    log(f"Opening the setup interview with {executable}…")
+    say(f"Opening the setup interview with {executable}…")
     code = _run_interview(path, executable)
     pending = unfilled_roles()
     if pending:
@@ -335,10 +362,15 @@ def load_config_default_executable() -> str:
         return "pi"
 
 
-def init(plain: bool = False) -> int:
-    log(f"Agentorch v{VERSION}")
-    log(f"Project: {project.PROJECT_NAME}")
-    log(f"Directory: {project.PROJECT_DIR}")
+def init(plain: bool = False, as_json: bool = False) -> int:
+    # With `--json` stdout carries one object and nothing else, so this run's
+    # narration goes to stderr through `say`.
+    def say(message: str) -> None:
+        (note if as_json else log)(message)
+
+    say(f"Agentorch v{VERSION}")
+    say(f"Project: {project.PROJECT_NAME}")
+    say(f"Directory: {project.PROJECT_DIR}")
 
     # Precondición más barata primero: sin repositorio no se escribe nada, no se
     # crea ningún space y no se arranca ningún agente.
@@ -356,7 +388,7 @@ def init(plain: bool = False) -> int:
     pending = unfilled_roles()
     if (not project.CONFIG_FILE.exists() or pending) and not plain \
             and sys.stdin.isatty() and sys.stdout.isatty():
-        interviewed = start_interview(candidates, seen)
+        interviewed = start_interview(candidates, seen, say=say)
         pending = list(interviewed.pending)
         # La entrevista acaba de escribir las propuestas: hay que releerlas.
         interviewed_sessions = proposed_sessions()
@@ -364,13 +396,13 @@ def init(plain: bool = False) -> int:
     if not project.CONFIG_FILE.exists():
         tabs, origin = initial_tabs(candidates, seen)
         write_default_config(tabs)
-        log(f"Configuration created from {origin}: {project.CONFIG_FILE}")
+        say(f"Configuration created from {origin}: {project.CONFIG_FILE}")
     elif pending:
         note(f"The interview left unfilled: {', '.join(pending)}. "
              "Nothing was applied; run 'agentorch init' again.")
         return 1
     else:
-        log(f"Configuration ready: {project.CONFIG_FILE}")
+        say(f"Configuration ready: {project.CONFIG_FILE}")
     config = load_config()
     tabs_config = config["tabs"]
     project.AGENTORCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -381,12 +413,12 @@ def init(plain: bool = False) -> int:
     try:
         mode = config["pi"]["bootstrap"]
         if mode == "none":
-            log("Bootstrap disabled (pi.bootstrap=none): Pi starts with no prompt.")
+            say("Bootstrap disabled (pi.bootstrap=none): Pi starts with no prompt.")
         else:
             write_bootstrap_files(tabs_config, mode)
-            log(f"Startup prompts prepared in {project.BOOTSTRAP_DIR} (mode {mode})")
+            say(f"Startup prompts prepared in {project.BOOTSTRAP_DIR} (mode {mode})")
         # 1. Inspeccionar la ventana en ejecución y localizar el space por carpeta.
-        log("Looking up existing spaces in Herdr...")
+        say("Looking up existing spaces in Herdr...")
         ls_output = run_app(["ls"])
         try:
             ls_data = parse_json_output(ls_output, "herdr-app ls")
@@ -410,10 +442,10 @@ def init(plain: bool = False) -> int:
             sid = space_id(space)
             if not sid:
                 raise AgentorchError("The project's space was found, but its ID could not be extracted.")
-            log(f"Existing space recovered: {sid}")
+            say(f"Existing space recovered: {sid}")
         else:
             # 2. Crear el space con la primera tab (Orquestador).
-            log("No space is associated with this folder. Creating one...")
+            say("No space is associated with this folder. Creating one...")
             space_args = [
                 "do", "space.new", "--name", project.PROJECT_NAME,
                 "--folder", str(project.PROJECT_DIR),
@@ -430,7 +462,7 @@ def init(plain: bool = False) -> int:
             sid = first_string(created, "space", "space_id", "id")
             if not sid:
                 raise AgentorchError(f"space.new did not return a space ID: {output}")
-            log(f"Space created: {sid}")
+            say(f"Space created: {sid}")
 
         registry["herdr"]["space_id"] = sid
         save_registry(registry)
@@ -452,12 +484,12 @@ def init(plain: bool = False) -> int:
             found = match_tab_entry(name, current_tabs, claimed)
             if found is not None:
                 claimed.add(tab_id(found) or "")
-                log(f"Existing tab recovered: {name}")
+                say(f"Existing tab recovered: {name}")
                 continue
             # La primera tab se crea junto con el space.new.
             if index == 0 and not matches:
                 continue
-            log(f"Creating tab: {name}")
+            say(f"Creating tab: {name}")
             tab_args = [
                 "do", "tab.new", "--name", name, "--space", sid,
                 "--folder", str(project.PROJECT_DIR), "--focus", "false",
@@ -479,7 +511,7 @@ def init(plain: bool = False) -> int:
         final_space, pending = wait_for_apps(sid, expected)
         final_tabs = tabs_of(final_space)
         if pending:
-            log(f"No application detected yet in: {', '.join(pending)}")
+            say(f"No application detected yet in: {', '.join(pending)}")
 
         claimed = set()
         for item in tabs_config:
@@ -505,7 +537,7 @@ def init(plain: bool = False) -> int:
                 "session_id": created_session.get(key) or interviewed_sessions.get(key),
             })
             save_registry(registry)
-            log(f"{name}: tab={tid}, terminal={ids['terminal_id']}, "
+            say(f"{name}: tab={tid}, terminal={ids['terminal_id']}, "
                 f"pane={ids['pane_id']}, app={app}, pid={pid}")
 
         # 6. Dejar el foco en la primera tab configurada (tabs[0]) y devolverla a
@@ -518,28 +550,52 @@ def init(plain: bool = False) -> int:
         if orchestrator_tab in ordered and ordered.index(orchestrator_tab) != 0:
             position = ordered.index(orchestrator_tab) + 1
             run_app(["do", "tab.move", "--id", orchestrator_tab, "--index", "1"])
-            log(f"Orchestrator moved from position {position} to 1")
+            say(f"Orchestrator moved from position {position} to 1")
         if interviewed.ran:
-            log(f"Orchestrator: {orchestrator['name']} ({orchestrator_tab}).")
-            log("The logs of this run stay in this tab: the focus is not moved "
+            say(f"Orchestrator: {orchestrator['name']} ({orchestrator_tab}).")
+            say("The logs of this run stay in this tab: the focus is not moved "
                 "after the interview.")
         else:
             run_app(["do", "space.select", "--id", sid])
             run_app(["do", "tab.select", "--id", orchestrator_tab])
-            log(f"Focus on {orchestrator['name']} ({orchestrator_tab})")
+            say(f"Focus on {orchestrator['name']} ({orchestrator_tab})")
 
         registry["status"] = "ready"
         registry["error"] = None
         save_registry(registry)
-        log("Initialisation and reconciliation complete.")
-        log(f"Tabs verified: {len(tabs_config)}")
-        log(f"Registry: {project.REGISTRY_FILE}")
+        say("Initialisation and reconciliation complete.")
+        say(f"Tabs verified: {len(tabs_config)}")
+        say(f"Registry: {project.REGISTRY_FILE}")
         if config["pi"]["bootstrap"] == "none":
-            log("Pi started with no startup prompt (pi.bootstrap=none).")
+            say("Pi started with no startup prompt (pi.bootstrap=none).")
         elif started:
-            log(f"Pi started in {len(started)} tab(s): {', '.join(started)}")
+            say(f"Pi started in {len(started)} tab(s): {', '.join(started)}")
         else:
-            log("No new tab: no Pi session was started.")
+            say("No new tab: no Pi session was started.")
+
+        # 7. Nombrar las tabs que la configuración no declara, con el rol que se
+        #    les daría. Es un informe y no una adopción: `agents.json` sólo cambia
+        #    por mano del humano (L22).
+        outside = outside_team(inspect_space(final_space, candidates), tabs_config,
+                               claimed, _own_tab_id_from(final_tabs))
+        if as_json:
+            print(json.dumps({
+                "space_id": sid,
+                "outside_team": [{
+                    "name": item["tab"].name,
+                    "tab_id": item["tab"].tab_id,
+                    "terminal_id": item["tab"].terminal_id,
+                    "app": item["tab"].app,
+                    "suggested_role": {"key": item["key"],
+                                       "name": item["name"]},
+                } for item in outside],
+            }, indent=2, ensure_ascii=False))
+        elif outside:
+            say("Live tab(s) outside the team: " + "; ".join(
+                f"{item['tab'].name} would add role '{item['key']}' "
+                f"(name '{item['name']}')" for item in outside)
+                + f". Nothing was written: edit {project.CONFIG_FILE} by hand "
+                  "to add them.")
         return 0
 
     except Exception as exc:

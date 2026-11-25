@@ -200,6 +200,62 @@ def report_tabs_without_agent(tabs: list[LiveTab], own_tab_id: str | None = None
     return idle
 
 
+def _unique_role_key(tab: LiveTab, taken: set[str], namespace: list[str]) -> str:
+    """The key this tab's role derives, kept unique against the keys already taken.
+
+    One rule for the skeleton, the proposal and the report: the role `init` says
+    it would add is the role it would write, key included, and a collision takes
+    the `_2` suffix instead of stealing another role's key.
+    """
+    base = key = slug(role_name(tab.name, namespace))
+    index = 2
+    while key in taken:
+        key = f"{base}_{index}"
+        index += 1
+    taken.add(key)
+    return key
+
+
+def outside_team(tabs: list[LiveTab], declared: list[dict],
+                 claimed_tab_ids: set[str] | None = None,
+                 own_tab_id: str | None = None) -> list[dict]:
+    """Named live tabs with an agent that the declared team does not account for.
+
+    Each entry carries the tab and the role `init` would add for it, derived by
+    the same rule as the skeleton: the live name verbatim, because a
+    configuration that renamed the tab would make `init` create a second tab
+    instead of adopting this one, and the key the role name expresses.
+
+    The exclusion predicate is the shared one (`role_tabs`): the setup marker, a
+    tab Herdr still names after its number and the tab running the command are
+    not roles. A tab the team already adopts is not outside of it either, even
+    when its name differs, so the ids `init` resolved are honoured as well.
+
+    A tab with no agent is not here: that one is `report_tabs_without_agent`'s
+    subject, and describing it twice in one run would train the human to ignore
+    both lines. This is a report; nothing is written.
+    """
+    members = [tab for tab in role_tabs(tabs, own_tab_id) if tab.has_agent]
+    if not members:
+        return []
+    namespace = repeated_prefixes([tab.name for tab in members])
+    taken: set[str] = {"orchestrator"} | {
+        str(tab.get("key")) for tab in declared
+        if isinstance(tab, dict) and tab.get("key")}
+    names = {normalize(str(tab.get("name") or "")) for tab in declared
+             if isinstance(tab, dict)}
+    ids = {identifier for identifier in (claimed_tab_ids or set()) if identifier}
+
+    result: list[dict] = []
+    for tab in members:
+        if tab.tab_id in ids or normalize(tab.name) in names:
+            continue
+        result.append({"tab": tab,
+                       "key": _unique_role_key(tab, taken, namespace),
+                       "name": tab.name})
+    return result
+
+
 def proposal_from_live(tabs: list[LiveTab], max_tabs: int = MAX_TABS,
                        own_tab_id: str | None = None) -> list[dict[str, str]]:
     """Build a `tabs` list from the tabs a human actually created and named.
@@ -231,14 +287,8 @@ def proposal_from_live(tabs: list[LiveTab], max_tabs: int = MAX_TABS,
 
     for tab in _cut_by_limit(ordered, max_tabs, len(result)):
         label = role_name(tab.name, namespace)
-        base = key = slug(label)
-        index = 2
-        while key in taken:
-            key = f"{base}_{index}"
-            index += 1
-        taken.add(key)
         result.append({
-            "key": key,
+            "key": _unique_role_key(tab, taken, namespace),
             "name": label,
             "role": tab.candidate.role if tab.candidate else UNDECLARED_ROLE,
         })
@@ -269,14 +319,8 @@ def skeleton_from_live(tabs: list[LiveTab], max_tabs: int = MAX_TABS,
     result: list[dict[str, str]] = []
     taken: set[str] = {"orchestrator"}
     for tab in _cut_by_limit(ordered, max_tabs, 0):
-        if tab is main:
-            key = "orchestrator"
-        else:
-            base = key = slug(role_name(tab.name, namespace))
-            index = 2
-            while key in taken:
-                key = f"{base}_{index}"
-                index += 1
+        key = "orchestrator" if tab is main \
+            else _unique_role_key(tab, taken, namespace)
         taken.add(key)
         result.append({"key": key, "name": tab.name,
                        "role": "", "instructions": ""})

@@ -46,10 +46,12 @@ is a usage error, exit 2.
 ### `--json`
 
 Where it exists it prints one JSON object on stdout, with nothing else on
-stdout; human-facing notes still go to stderr. It exists on `discover`, `status`,
-`ls`, `doctor`, `templates` and `handoff validate`. It is not a global flag —
-`agentorch init --json` is a usage error. The exit code does not change with
-`--json`.
+stdout; human-facing notes still go to stderr. It exists on `init`, `discover`,
+`status`, `ls`, `doctor`, `templates` and `handoff validate`. It is not a global
+flag — `agentorch start --json` and `agentorch handoff run --json` are usage
+errors. `init` is the one command whose normal output is a narration of what it
+did rather than a report, so with `--json` that narration moves to stderr and the
+object is left alone on stdout. The exit code does not change with `--json`.
 
 ## `agentorch`
 
@@ -82,8 +84,19 @@ Create or recover the project's Herdr space, write a default `agents.json` when
 there is none, optionally open the setup interview in the current terminal, create
 the configured tabs and start one Pi session per tab.
 
+It also reports, and only reports. A named live tab with an agent that
+the configuration does not declare is named at the end of the run, after the
+summary, with the role `init` would add for it: the key the role name derives and
+the live name verbatim, which is what the skeleton would write. Nothing is added
+to `agents.json`, no tab is created for it and the focus does not move: the file
+is left for you to edit. A named tab with no agent is a different message from the
+same run, the one that points at `agentorch start <role> --recreate`; the setup
+tab, a tab Herdr still names after its number and the tab running the command are
+never reported, and a workspace whose tabs all belong to the team says nothing
+extra.
+
 ```text
-usage: agentorch init [-h] [--plain] [--project PATH]
+usage: agentorch init [-h] [--plain] [--json] [--project PATH]
 ```
 
 ### Arguments and options
@@ -91,6 +104,7 @@ usage: agentorch init [-h] [--plain] [--project PATH]
 | Name | What it does |
 | --- | --- |
 | `--plain` | Do not open the interview; materialise directly. Without it, an interview is offered when there is no `agents.json` or a role is still empty, and only when both stdin and stdout are a terminal. |
+| `--json` | Print one JSON object on stdout — `{"space_id": …, "outside_team": […]}` — and move the run's progress lines to stderr, so stdout holds nothing else. Each `outside_team` entry carries the tab's `name`, `tab_id`, `terminal_id` and `app`, plus `suggested_role` with the `key` and `name` `init` would add. The list is empty when every live tab belongs to the team. The exit code does not change. |
 | `--project` | `--project PATH`, the project directory to act on; the current one by default. Shared by every command (see above). |
 
 ### Exit codes
