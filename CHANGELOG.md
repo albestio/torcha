@@ -3,6 +3,15 @@
 Notable changes to torcha. The format follows Keep a Changelog and the project
 uses semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Two handoffs written in the same instant left "the newest" to the filesystem's
+  enumeration order, so the same state could consume a different document on a
+  different Python version. The tie is now broken deterministically (`5eb82cd`).
+  Found by the CI matrix on its first run, on 3.11 only.
+
 ## [0.5.0] - 2026-11-25
 
 ### Renamed
