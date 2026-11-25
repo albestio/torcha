@@ -636,7 +636,7 @@ def test_an_interview_keeps_the_focus_and_the_logs_in_this_tab(project, monkeypa
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
 
-    def fake_interview(candidates):
+    def fake_interview(candidates, seen=None):
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
@@ -663,7 +663,7 @@ def test_a_configuration_with_nothing_pending_still_focuses_the_orchestrator(
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates: called.setdefault("ran", True))
+                        lambda candidates, seen=None: called.setdefault("ran", True))
 
     assert project.module.init() == 0
 
@@ -1644,7 +1644,7 @@ def test_init_opens_the_interview_when_live_tabs_exist(project, monkeypatch):
 
     called = {}
 
-    def fake_interview(candidates):
+    def fake_interview(candidates, seen=None):
         called["ran"] = True
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
@@ -1665,7 +1665,7 @@ def test_init_skips_the_interview_with_plain(project, monkeypatch):
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates: called.setdefault("ran", True))
+                        lambda candidates, seen=None: called.setdefault("ran", True))
 
     assert project.module.init(plain=True) == 0
     assert "ran" not in called
@@ -1677,7 +1677,7 @@ def test_init_skips_the_interview_without_a_tty(project, monkeypatch):
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: False)
     called = {}
     monkeypatch.setattr(project.module.init_module, "start_interview",
-                        lambda candidates: called.setdefault("ran", True))
+                        lambda candidates, seen=None: called.setdefault("ran", True))
 
     assert project.module.init() == 0
     assert "ran" not in called
@@ -1688,7 +1688,7 @@ def test_a_failed_interview_refuses_to_apply(project, monkeypatch):
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
 
-    def fake_interview(candidates):
+    def fake_interview(candidates, seen=None):
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
@@ -1835,7 +1835,7 @@ def test_ids_written_during_the_interview_are_read_afterwards(project, monkeypat
     monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
 
-    def fake_interview(candidates):
+    def fake_interview(candidates, seen=None):
         (project.root / ".agentorch/agents.json").write_text(json.dumps({
             "pi": {"executable": "pi", "bootstrap": "greet"},
             "tabs": [{"key": "orchestrator", "name": "Orquestador",
@@ -2702,6 +2702,71 @@ def test_init_reports_a_named_tab_without_an_agent_on_both_paths(
     project.module.init_module.start_interview([])
     interview = capsys.readouterr().err
     assert "no agent running" in interview and "Coach" in interview
+
+
+def agent_less_space(folder: str) -> dict:
+    """The career-ops shape with every named tab back on a bare shell."""
+    space = career_ops_space(folder)
+    for tab in space["tabs"]:
+        tab["terminals"][0]["app"] = None
+        tab["terminals"][0]["status"] = None
+    return space
+
+
+def test_one_init_prints_the_agent_less_note_once(project, monkeypatch, capsys):
+    """Every named tab is agent-less: the interview reports and returns an empty
+    skeleton, and the fallback then inspects the same space. Both paths are one
+    command, so the human reads the note once."""
+    (project.root / ".agentorch/agents.json").unlink()
+    project.state.write_text(json.dumps({
+        "spaces": [agent_less_space(str(project.root))], "calls": []}))
+    monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty",
+                        lambda: True)
+    monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty",
+                        lambda: True)
+    monkeypatch.setattr(project.module.init_module, "_own_tab", lambda: None)
+    monkeypatch.setattr(project.module.init_module, "_run_interview",
+                        lambda path, exe: 0)
+
+    assert project.module.init() == 0
+
+    reported = [line for line in capsys.readouterr().err.splitlines()
+                if "no agent running" in line]
+    assert len(reported) == 1
+    assert "Coach" in reported[0]
+
+
+def test_the_tab_running_the_command_is_never_reported_or_proposed(
+        project, capsys):
+    """A named shell tab that runs the command is the setup terminal, not a role.
+
+    `start_interview` already excludes it; the report and the proposal have to
+    agree, or `discover --live` warns about the pane the human is typing in and
+    the fallback proposes it as a role.
+    """
+    folder = str(project.root)
+    own = role_tab(2, "Scratch", folder, app=None)
+    # The pane this process runs in: herdr-core reports it with our own pid, so
+    # `own_terminal` finds it without any test-only seam.
+    own["terminals"][0]["pid"] = os.getpid()
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": folder, "active": True,
+        "tabs": [role_tab(1, "Senior Orchestrator", folder), own]}],
+        "calls": []}))
+
+    # `discover --live`: neither a warning nor a proposal for the own tab.
+    assert project.module.discover(live=True) == 0
+    captured = capsys.readouterr()
+    assert "no agent running" not in captured.err
+    assert [tab["name"] for tab in json.loads(captured.out)["tabs"]] == \
+        ["Orchestrator"]
+
+    # The fallback in `init`: the own tab is not a role there either.
+    (project.root / ".agentorch/agents.json").unlink()
+    tabs, origin = project.module.init_module.initial_tabs([])
+    assert origin == "named live tabs"
+    assert [tab["name"] for tab in tabs] == ["Orchestrator"]
+    assert "no agent running" not in capsys.readouterr().err
 
 
 # --- the main session -------------------------------------------------------

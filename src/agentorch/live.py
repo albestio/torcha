@@ -15,7 +15,8 @@ from . import project
 from .config import MAX_TABS
 from .discovery import (DEFAULT_ORCHESTRATOR, ORCHESTRATOR_NAMES, Candidate,
                         is_orchestrator, repeated_prefixes, role_name, slug)
-from .herdr import tab_app, tab_id, tab_name, tabs_of
+from .herdr import (own_terminal, tab_app, tab_id, tab_name, tab_of_terminal,
+                    tabs_of)
 from .output import note
 
 # `app` is what the program reports about itself over OSC 7501.
@@ -129,6 +130,14 @@ def is_setup_tab(tab: LiveTab) -> bool:
     return tab.name.strip().casefold() == SETUP_TAB_NAME.casefold()
 
 
+def own_tab() -> dict | None:
+    """The tab this process runs in, or None when it cannot be identified."""
+    terminal = own_terminal()
+    if terminal is None:
+        return None
+    return tab_of_terminal(terminal)
+
+
 def role_tabs(tabs: list[LiveTab], own_tab_id: str | None = None) -> list[LiveTab]:
     """Tabs that can become roles: named, and neither the setup tab nor the caller's.
 
@@ -160,22 +169,32 @@ def _cut_by_limit(ordered: list[LiveTab], limit: int, taken: int) -> list[LiveTa
     return ordered[:room]
 
 
-def report_tabs_without_agent(tabs: list[LiveTab],
-                              own_tab_id: str | None = None) -> list[LiveTab]:
+def report_tabs_without_agent(tabs: list[LiveTab], own_tab_id: str | None = None,
+                              seen: set[tuple[str, str | None]] | None = None
+                              ) -> list[LiveTab]:
     """Name the named tabs left out only because no agent runs in them.
 
     A named tab whose Pi died is an exclusion a human cannot see on screen: the
     skeleton drops it, so without this the role disappears in silence. The tabs
     excluded on purpose stay quiet -- the setup marker, a bare tab Herdr named
     after its number, and the tab running the command -- because reporting them
-    would train the human to ignore the message. It is reported once per
-    command, not from `role_tabs`, which several callers share in one run.
+    would train the human to ignore the message.
+
+    It is reported once per command, not from `role_tabs`, which several callers
+    share in one run: `seen` carries the tabs this command has already named, so
+    a second path stays silent unless it finds a tab nobody named yet. A caller
+    that reaches the report once passes nothing and always prints.
     """
     idle = [tab for tab in role_tabs(tabs, own_tab_id) if not tab.has_agent]
-    if idle:
-        place = "that tab" if len(idle) == 1 else "each of them"
+    if seen is None:
+        fresh = idle
+    else:
+        fresh = [tab for tab in idle if (tab.name, tab.tab_id) not in seen]
+        seen.update((tab.name, tab.tab_id) for tab in idle)
+    if fresh:
+        place = "that tab" if len(fresh) == 1 else "each of them"
         note(f"Named tab(s) with no agent running: "
-             f"{', '.join(tab.name for tab in idle)}. Start Pi in {place} by "
+             f"{', '.join(tab.name for tab in fresh)}. Start Pi in {place} by "
              f"hand, or once the role is in the configuration run "
              f"'agentorch start <role> --recreate'.")
     return idle

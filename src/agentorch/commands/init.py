@@ -18,23 +18,30 @@ from ..discovery import choose, role_name, scan, slug
 from ..errors import AgentorchError
 from ..git import ensure_git_repo
 from ..herdr import (extract_tab_ids, first_string, get_spaces, parse_json_output,
-                     own_terminal, tab_of_terminal,
                      run_app, space_id, spaces_for_project, tab_app, tab_id,
                      tab_name, tabs_of, terminal_folders, terminal_pid,
                      wait_for_apps)
-from ..live import (inspect_space, names_the_role, proposal_from_live,
-                    report_tabs_without_agent, role_tabs, skeleton_from_live)
+# La tab que ejecuta el comando. `discover` necesita la misma búsqueda, así que
+# vive en `live`; el nombre se queda local porque es el que la suite intercepta.
+from ..live import (inspect_space, names_the_role, own_tab as _own_tab,
+                    proposal_from_live, report_tabs_without_agent, role_tabs,
+                    skeleton_from_live)
 from ..commands.discover import live_payload
 from ..output import error, log, note
 from ..registry import registry_template, save_registry, timestamp, write_json_atomic
 
-def initial_tabs(candidates) -> tuple[list[dict[str, str]], str]:
+def initial_tabs(candidates,
+                 seen: set[tuple[str, str | None]] | None = None
+                 ) -> tuple[list[dict[str, str]], str]:
     """Decide the tabs of a brand-new agents.json, in order of evidence.
 
     1. Named tabs where an agent is running: the team in use, the one that will
        carry handoffs. Declared roles in files are a catalogue, not the shift.
     2. Roles the project declares in files.
     3. The built-in default team.
+
+    `seen` carries the agent-less tabs this command already named, so the note
+    prints once whichever path reaches it.
     """
     try:
         data = parse_json_output(run_app(["ls"]), "herdr-app ls")
@@ -43,13 +50,16 @@ def initial_tabs(candidates) -> tuple[list[dict[str, str]], str]:
     if data is not None:
         spaces = spaces_for_project(get_spaces(data), str(project.PROJECT_DIR),
                                     terminal_folders())
+        # La tab que ejecuta el comando es el terminal del setup, no un rol: se
+        # excluye del aviso y de la propuesta, como ya hace la entrevista.
+        own_tab_id = tab_id(_own_tab() or {})
         for index, space in enumerate(spaces):
             live_tabs = inspect_space(space, candidates)
             # Once per command: the loop can see more than one space.
             if index == 0:
-                report_tabs_without_agent(live_tabs)
-            tabs = proposal_from_live(live_tabs,
-                                      max_tabs=configured_max_tabs())
+                report_tabs_without_agent(live_tabs, own_tab_id, seen)
+            tabs = proposal_from_live(live_tabs, max_tabs=configured_max_tabs(),
+                                      own_tab_id=own_tab_id)
             if tabs:
                 return tabs, "named live tabs"
     if candidates:
@@ -186,14 +196,6 @@ def _interview_prompt(skeleton: list[dict[str, str]], payload: dict,
     return "\n".join(lines)
 
 
-def _own_tab() -> dict | None:
-    """The tab this process runs in, or None when it cannot be identified."""
-    terminal = own_terminal()
-    if terminal is None:
-        return None
-    return tab_of_terminal(terminal)
-
-
 def _mark_setup_tab(tab: dict | None, team_tab_ids: set[str]) -> None:
     """Name the tab running the interview, so it is findable while debugging.
 
@@ -227,7 +229,8 @@ def _run_interview(path: Path, executable: str) -> int:
     return subprocess.run(command, cwd=project.PROJECT_DIR, check=False).returncode
 
 
-def start_interview(candidates) -> Interview:
+def start_interview(candidates,
+                    seen: set[tuple[str, str | None]] | None = None) -> Interview:
     """Hand the setup to a Pi session. The report says whether it took this pane."""
     payload, live_tabs = live_payload(candidates)
     if not payload.get("tabs"):
@@ -249,7 +252,7 @@ def start_interview(candidates) -> Interview:
     directory = project.AGENTORCH_DIR
     directory.mkdir(parents=True, exist_ok=True)
     if not project.CONFIG_FILE.exists():
-        report_tabs_without_agent(live_tabs, own_tab_id)
+        report_tabs_without_agent(live_tabs, own_tab_id, seen)
         tabs = skeleton_from_live(live_tabs, max_tabs=configured_max_tabs(),
                                   own_tab_id=own_tab_id)
         if not tabs:
@@ -305,18 +308,21 @@ def init(plain: bool = False) -> int:
     if which("herdr-app") is None:
         raise AgentorchError("'herdr-app' is not on PATH.")
     candidates = scan(project.PROJECT_DIR, scope="project")
+    # Un solo aviso por comando: la entrevista y el fallback comparten lo ya
+    # dicho, así que la nota de las tabs sin agente se imprime una vez.
+    seen: set[tuple[str, str | None]] = set()
     interviewed_sessions = proposed_sessions()
     interviewed = Interview()
     pending = unfilled_roles()
     if (not project.CONFIG_FILE.exists() or pending) and not plain \
             and sys.stdin.isatty() and sys.stdout.isatty():
-        interviewed = start_interview(candidates)
+        interviewed = start_interview(candidates, seen)
         pending = list(interviewed.pending)
         # La entrevista acaba de escribir las propuestas: hay que releerlas.
         interviewed_sessions = proposed_sessions()
 
     if not project.CONFIG_FILE.exists():
-        tabs, origin = initial_tabs(candidates)
+        tabs, origin = initial_tabs(candidates, seen)
         write_default_config(tabs)
         log(f"Configuration created from {origin}: {project.CONFIG_FILE}")
     elif pending:

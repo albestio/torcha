@@ -14,8 +14,8 @@ from .. import project
 from ..config import configured_max_tabs
 from ..discovery import choose, scan
 from ..herdr import (get_spaces, parse_json_output, run_app, space_id,
-                     spaces_for_project, terminal_folders)
-from ..live import (designate_orchestrator, inspect_space, normalize,
+                     spaces_for_project, tab_id, terminal_folders)
+from ..live import (designate_orchestrator, inspect_space, normalize, own_tab,
                     proposal_from_live, report_tabs_without_agent)
 from ..output import note
 
@@ -85,8 +85,12 @@ def discover(live: bool = False, as_json: bool = False) -> int:
                      "live": None, "candidates": [], "proposed": None}
 
     live_tabs: list = []
+    own_tab_id: str | None = None
     if live:
         payload["live"], live_tabs = live_payload(candidates)
+        # La tab desde la que se ejecuta el comando es el terminal del humano, no
+        # un rol: ni se avisa de ella ni se propone como rol.
+        own_tab_id = tab_id(own_tab() or {})
         if not as_json:
             _report(payload["live"])
 
@@ -100,8 +104,9 @@ def discover(live: bool = False, as_json: bool = False) -> int:
     if live_tabs:
         # The proposal is built for the human here: say which named tabs have no
         # agent, instead of letting them pass unnoticed.
-        report_tabs_without_agent(live_tabs)
-    proposal = proposal_from_live(live_tabs, max_tabs=configured_max_tabs()) \
+        report_tabs_without_agent(live_tabs, own_tab_id)
+    proposal = proposal_from_live(live_tabs, max_tabs=configured_max_tabs(),
+                                  own_tab_id=own_tab_id) \
         if live_tabs else []
     if proposal:
         if not as_json:
