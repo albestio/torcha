@@ -106,7 +106,14 @@ def _recreate(key: str, entry: dict, config: dict, space: str,
 
 
 def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
-          interval: float = 1.0, recreate: bool = False) -> int:
+          interval: float = 1.0, recreate: bool = True) -> int:
+    """Bring the registered agents up, recreating a missing tab unless refused.
+
+    Recreating is the default because it is the most common accident — Herdr
+    closed, the tab deleted — and it is not destructive: it is `tab.new --argv`
+    with the recorded session id. `recreate=False` restores the refusal for a
+    human who wants to look before anything is created.
+    """
     registry = load_registry()
     config = load_config()
     executable = config["pi"]["executable"]
@@ -140,8 +147,9 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
             continue
         if _find_terminal(space, entry.get("tab_id"), terminal) is None:
             if not recreate:
-                note(f"{key}: the tab or the terminal no longer exist "
-                     "(use --recreate to bring it back).")
+                note(f"{key}: the tab is missing and --no-recreate was given, "
+                     f"so nothing is recreated. Run 'agentorch start {key}' "
+                     "without --no-recreate to bring it back.")
                 failed += 1
                 continue
             previous_session = entry.get("session_id")

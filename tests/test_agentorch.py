@@ -1382,13 +1382,89 @@ def a_space_without_the_role(project):
                                      "status": "idle", "pid": 111}]}]}
 
 
-def test_start_reports_a_closed_tab_and_offers_recreate(project, capsys):
+def test_start_recreates_a_missing_tab_by_default(project, capsys):
+    """S15: a closed tab is the most common accident, so `start` brings it back."""
     start_registry(project)
     project.state.write_text(json.dumps(
         {"spaces": [a_space_without_the_role(project)], "calls": []}))
 
-    assert project.module.start(timeout=0.2, interval=0.01) == 1
-    assert "--recreate" in capsys.readouterr().err
+    assert project.module.start(timeout=0.2, interval=0.01) == 0
+
+    assert "hc_sent" not in project.read_state()          # no se teclea nada
+    created = project.options_for("tab.new")
+    assert created and created[0]["name"] == "Orquestador"
+    assert SESSION in created[0]["argv"]                 # se reanuda la sesión
+    fresh_tab = created_tab(project, "Orquestador")
+    entry = project.registry()["herdr"]["tabs"]["orchestrator"]
+    assert entry["tab_id"] == fresh_tab["id"]
+    assert entry["terminal_id"] == fresh_tab["terminals"][0]["terminal"]
+    assert entry["pane_id"] == fresh_tab["terminals"][0]["pane"]
+    assert entry["pid"] == fresh_tab["terminals"][0]["pid"]
+    assert entry["app"] == "pi"
+    assert entry["session_id"] == SESSION
+    out = capsys.readouterr().out
+    assert "orchestrator: tab recreated" in out
+    assert "session resumed" in out
+    assert "1 started" in out
+
+
+def test_start_no_recreate_restores_the_refusal(project, monkeypatch, capsys):
+    """S15: the escape hatch inverts; `--no-recreate` leaves the registry as it is."""
+    import agentorch.cli as cli
+
+    start_registry(project)
+    project.state.write_text(json.dumps(
+        {"spaces": [a_space_without_the_role(project)], "calls": []}))
+    before = project.registry()
+    monkeypatch.setattr(sys, "argv",
+                        ["agentorch", "--project", str(project.root),
+                         "start", "--no-recreate"])
+
+    assert cli.main() == 1
+
+    captured = capsys.readouterr()
+    assert "is missing" in captured.err
+    assert "--no-recreate" in captured.err
+    assert project.options_for("tab.new") == []
+    assert project.options_for("tab.close") == []
+    assert project.registry() == before
+
+
+@pytest.mark.parametrize("recreate", [True, False])
+def test_a_terminal_that_is_not_a_shell_is_never_closed(project, capsys, recreate):
+    """S15: no flag authorises closing a tab that may hold someone else's work."""
+    start_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None, pid=77)])
+    state = project.read_state()
+    state["spaces"][0]["tabs"][0]["terminals"][0]["fg_argv"] = ["vim"]
+    project.state.write_text(json.dumps(state))
+
+    assert project.module.start(timeout=0.2, interval=0.01,
+                                recreate=recreate) == 1
+
+    assert project.options_for("tab.close") == []
+    assert project.options_for("tab.new") == []
+    assert "hc_sent" not in project.read_state()
+    assert "not a shell" in capsys.readouterr().err
+    assert project.registry()["herdr"]["tabs"]["orchestrator"]["tab_id"] == "tb1"
+
+
+def test_start_help_documents_both_recreate_flags(project):
+    """S15: `--help` says which flag is the default and which one refuses."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    result = subprocess.run([sys.executable, "-m", "agentorch", "start",
+                             "--help"], cwd=project.root, env=env,
+                            capture_output=True, text=True)
+
+    assert result.returncode == 0
+    text = " ".join(result.stdout.split())   # el ancho de línea no importa
+    assert "--recreate" in text
+    assert "--no-recreate" in text
+    assert ("Recreate a tab that has disappeared and resume its session "
+            "(the default).") in text
+    assert "Refuse instead of recreating a tab that has disappeared." in text
 
 
 def test_start_recreate_resumes_the_old_session(project, capsys):
