@@ -168,7 +168,27 @@ omitted here):
 | `handoff` | The newest file in `.agentorch/handoffs/<key>/` by modification time: its age from `created_at` (the file's mtime when the document has none) and the `git.head` the agent recorded. |
 | `drift` | `git rev-list --count <handoff head>..HEAD` and `git status --porcelain`, measured in the project. A head that is no longer an ancestor of `HEAD` — a rebase, a rewritten branch — says so instead of printing a count it cannot count. |
 | `tokens` | The last message of the role's Pi transcript that carries a `usage` block: `usage.totalTokens` with the model name. The transcript is found by its session id under Pi's own session store (`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`), never by a guessed path. |
-| percentage | `totalTokens` covers the turn's request and its answer, so it is a fair reading of how full the window is — but the transcript holds **no** window. Pi states it in its model configuration (`models.json`, then `models-store.json`, keyed by model id or name), so a percentage appears only when the model is found there with a positive `contextWindow`. Otherwise the tokens are shown alone and the line says `no context window known: no percentage`: agentorch does not estimate it. |
+| percentage | The window and the percentage come from whichever source can be identified: the role's **own** presence block in its transcript first, otherwise the model's `contextWindow` from Pi's catalogue combined with the last turn's `totalTokens`, otherwise nothing but the tokens and the sentence `no context window known: no percentage`. |
+
+Pi writes, beside each message, the figures its own status bar shows
+(`contextPct`, `contextWindow`, `contextTokens`). That block is the number the
+human already read, so it wins over anything agentorch could divide out — but
+only when it can be identified as this role's own. A transcript also stores the
+presence blocks of **other** sessions, because an intercom tool result is
+recorded with the sender's block inside it, and taking one of those paints this
+role with a foreign percentage: a role at 473,271 tokens of a 1,000,000-token
+window read as `about 6%` until the identity check was added. A block is
+accepted only when its `id` equals the role's session id, and the last such
+block wins, as in the `tokens` line, because a session can change models.
+
+Without a block of its own the catalogue supplies the window —
+`models-store.json` first, then a hand-written `models.json`, keyed by model id
+or name — and `totalTokens` is divided by it. A catalogue entry that is not a
+positive integer is not an answer. When neither source yields a window, the
+tokens appear alone and agentorch does not estimate: `no context window known:
+no percentage`. A percentage Pi stated without stating the window is still
+shown, as `about 6% of its context window` followed by `the window size is
+unknown`.
 
 Every source is optional and read-only. A role with no handoff, no session id, no
 readable transcript, an unreadable document, or a store that is not there is said

@@ -1219,13 +1219,50 @@ def pi_agent(tmp_path, monkeypatch):
     return agent_dir
 
 
+# A presence block that belongs to some other session: what an intercom tool
+# result carries inside a transcript it did not write.
+FOREIGN_ID = "01a21214-4e63-7118-9a50-74009be0c4b9"
+
+
+def presence_block(**fields):
+    """The figures Pi's own status bar shows, as it writes them beside a message.
+
+    A block written beside a message belongs to the session that wrote it, so the
+    default id is the session under test. A test that deliberately wants a block
+    from somewhere else passes `id=FOREIGN_ID`.
+    """
+    block = {"id": SESSION,
+             "name": "subagent-chat-01a21214", "cwd": "/home/albestio/Code/proj",
+             "model": "deepseek-v4.1-flash", "pid": 14118,
+             "status": "idle", "trustedLocal": True}
+    block.update(fields)
+    return block
+
+
+def presence_line(block, shape="details"):
+    """One transcript line carrying a presence block, in either shape Pi writes.
+
+    `details` is the shape an intercom message has on this machine (the figures
+    sit at `details.from`); `from` is the shape of a line that states them next
+    to its own `message`. The code must not care which.
+    """
+    if shape == "details":
+        return {"type": "custom_message", "customType": "intercom_message",
+                "display": "notice",
+                "details": {"from": block, "message": {"id": "m1"}},
+                "content": "a message"}
+    return {"type": "message", "from": block,
+            "message": {"role": "user", "content": [
+                {"type": "text", "text": "and now?"}]}}
+
+
 def write_transcript(agent_dir, session_id, *, model="test-model", total=176283,
-                     project_dir="proj"):
+                     project_dir="proj", presence=None, presence_shape="details"):
     """One Pi transcript: one JSON object per line, as Pi writes them."""
     store = Path(agent_dir) / "sessions" / project_dir
     store.mkdir(parents=True, exist_ok=True)
     path = store / f"2026-11-25T10-00-00-000Z_{session_id}.jsonl"
-    path.write_text("\n".join(json.dumps(record) for record in (
+    records = [
         {"type": "message", "message": {"role": "user", "content": [
             {"type": "text", "text": "go"}]}},
         {"type": "message", "message": {
@@ -1235,7 +1272,10 @@ def write_transcript(agent_dir, session_id, *, model="test-model", total=176283,
         # La última línea no lleva `usage`: se toma el último mensaje que sí.
         {"type": "message", "message": {"role": "user", "content": [
             {"type": "text", "text": "and now?"}]}},
-    )) + "\n")
+    ]
+    blocks = [presence] if isinstance(presence, dict) else list(presence or [])
+    records.extend(presence_line(block, presence_shape) for block in blocks)
+    path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
     return path
 
 
@@ -1384,6 +1424,204 @@ def test_status_shows_the_percentage_only_when_the_window_is_known(
     usage = status_roles(capsys)[0]["usage"]
     assert usage["context_window"] == 200000
     assert usage["percent"] == 88
+
+
+def test_status_prefers_the_percentage_the_transcript_states(
+        project, pi_agent, capsys):
+    """Pi ya calculó el porcentaje: se usa el suyo, no el que sale de dividir."""
+    session = SESSION
+    one_role(project, session_id=session)
+    write_transcript(
+        pi_agent, session, model="deepseek-v4.1-flash", total=176283,
+        presence=[presence_block(contextPct=23, contextTokens=230365,
+                                 contextWindow=1000000),
+                  presence_block(contextPct=47, contextTokens=473271,
+                                 contextWindow=1000000)])
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "176,283 tokens" in out
+    assert "model deepseek-v4.1-flash" in out
+    assert "about 47% of a 1,000,000-token window" in out
+    assert "18%" not in out                    # no se recalcula lo que Pi dijo
+    assert "23%" not in out                    # la última presencia manda
+    assert "no percentage" not in out
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["total_tokens"] == 176283
+    assert usage["model"] == "deepseek-v4.1-flash"
+    assert usage["percent"] == 47
+    assert usage["context_window"] == 1000000
+
+
+@pytest.mark.parametrize("shape", ["details", "from"])
+def test_status_reads_the_presence_record_wherever_the_line_puts_it(
+        project, pi_agent, capsys, shape):
+    session = SESSION
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session,
+                     presence=presence_block(contextPct=6, contextTokens=61390,
+                                             contextWindow=1000000),
+                     presence_shape=shape)
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["percent"] == 6
+    assert usage["context_window"] == 1000000
+
+
+def test_status_ignores_a_presence_block_of_another_session(
+        project, pi_agent, capsys):
+    """Un transcript guarda bloques de otras sesiones (los mete intercom): el
+    ajeno no presta ni su porcentaje ni su ventana a este rol."""
+    one_role(project, session_id=SESSION)
+    write_transcript(
+        pi_agent, SESSION, model="deepseek-v4.1-flash", total=473271,
+        presence=presence_block(id=FOREIGN_ID, contextPct=6,
+                                contextTokens=61390, contextWindow=200000))
+    (pi_agent / "models-store.json").write_text(json.dumps({
+        "opencode-go": {"models": [
+            {"id": "deepseek-v4.1-flash", "contextWindow": 1000000}]}}))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "about 47% of a 1,000,000-token window" in out
+    assert "6%" not in out                     # el porcentaje del bloque ajeno
+    assert "200,000" not in out                 # ni la ventana del bloque ajeno
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["total_tokens"] == 473271
+    assert usage["context_window"] == 1000000
+    assert usage["percent"] == 47
+
+
+def test_status_trusts_the_transcript_window_over_the_catalogue(
+        project, pi_agent, capsys):
+    """La ventana que Pi declara gana a la del catálogo, que puede ser vieja."""
+    session = SESSION
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session, model="deepseek-v4.1-flash",
+                     presence=presence_block(contextPct=6, contextTokens=61390,
+                                             contextWindow=1000000))
+    (pi_agent / "models-store.json").write_text(json.dumps({
+        "opencode-go": {"models": [
+            {"id": "deepseek-v4.1-flash", "contextWindow": 200000}]}}))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "about 6% of a 1,000,000-token window" in out
+    assert "200,000" not in out
+
+
+def test_status_falls_back_to_the_model_store_outside_the_providers_block(
+        project, pi_agent, capsys):
+    """models-store.json guarda cada proveedor en la raíz, no bajo `providers`."""
+    session = "01a1f453-0174-7369-9a3a-666666666666"
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session, model="deepseek-v4.1-flash", total=473271)
+    (pi_agent / "models-store.json").write_text(json.dumps({
+        "groq": {"models": [{"id": "other-model", "contextWindow": 32000}]},
+        "opencode-go": {"lastModified": "2026-11-20T00:00:00Z", "models": [
+            {"id": "another-model", "contextWindow": 65536},
+            {"id": "deepseek-v4.1-flash", "contextWindow": 1000000}]}}))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "about 47% of a 1,000,000-token window" in out
+    assert "32,000" not in out
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["context_window"] == 1000000
+    assert usage["percent"] == 47
+
+
+def test_status_prefers_the_store_over_the_hand_written_model_file(
+        project, pi_agent, capsys):
+    """El catálogo que Pi resolvió va antes que un models.json escrito a mano."""
+    session = "01a1f453-0174-7369-9a3a-777777777777"
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session)
+    (pi_agent / "models-store.json").write_text(json.dumps({"local": {
+        "models": [{"id": "test-model", "contextWindow": 400000}]}}))
+    (pi_agent / "models.json").write_text(json.dumps({"providers": {"local": {
+        "models": [{"id": "test-model", "contextWindow": 200000}]}}}))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "about 44% of a 400,000-token window" in out
+    assert "200,000" not in out
+
+
+@pytest.mark.parametrize("window", [0, -1, "1000000", True, 2.5])
+def test_a_catalogue_window_that_is_not_a_positive_integer_is_ignored(
+        project, pi_agent, capsys, window):
+    """Una ventana mal escrita no es un número que imprimir: se degrada."""
+    session = "01a1f453-0174-7369-9a3a-888888888888"
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session)
+    (pi_agent / "models-store.json").write_text(json.dumps({"local": {
+        "models": [{"id": "test-model", "contextWindow": window}]}}))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "no context window known: no percentage" in out
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["context_window"] is None
+    assert usage["percent"] is None
+
+
+def test_status_states_a_percentage_the_transcript_gives_without_a_window(
+        project, pi_agent, capsys):
+    """El porcentaje que Pi dijo se muestra aunque no diga el tamaño."""
+    session = SESSION
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session,
+                     presence=presence_block(contextPct=6, contextTokens=61390))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "about 6% of its context window" in out
+    assert "the window size is unknown" in out
+    assert "no percentage" not in out
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["percent"] == 6
+    assert usage["context_window"] is None
+
+
+def test_the_tokens_degrade_per_role_not_per_command(project, pi_agent, capsys):
+    """Un rol sin transcripción no se lleva por delante los números de otro."""
+    known = SESSION
+    absent = "01a1f453-0174-7369-9a3a-bbbbbbbbbbbb"
+    write_registry(project, tabs={
+        "orchestrator": {"name": "Orquestador", "tab_id": "tb1",
+                         "terminal_id": "t1", "pane_id": "p1", "app": "pi",
+                         "pid": 500, "session_id": known},
+        "worker_1": {"name": "Worker 1", "tab_id": "tb2",
+                     "terminal_id": "t2", "pane_id": "p2", "app": "pi",
+                     "pid": 501, "session_id": absent}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500),
+                        live_tab("tb2", "Worker 1", "t2", pid=501)])
+    write_transcript(pi_agent, known, model="deepseek-v4.1-flash", total=473271,
+                     presence=presence_block(contextPct=47, contextTokens=473271,
+                                             contextWindow=1000000))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "about 47% of a 1,000,000-token window" in out
+    assert f"no transcript for session {absent.split('-')[0][:8]}" in out
+
+    assert project.module.status(as_json=True) == 0
+    roles = status_roles(capsys)
+    assert roles[0]["usage"]["percent"] == 47
+    assert "no transcript" in roles[1]["usage"]["detail"]
+    assert roles[1]["usage"]["percent"] is None
 
 
 def test_status_says_which_source_is_missing_for_the_tokens(project, pi_agent, capsys):

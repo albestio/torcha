@@ -45,9 +45,11 @@ DIVERGENT = {MISSING, MOVED}
 # up, because a registry is data and data does not get to walk the filesystem.
 SESSION_ID = re.compile(r"^[A-Za-z0-9._-]{4,}$")
 
-# Where Pi states the window of a model it knows. Read in this order: the
-# project's own model file wins over the store Pi downloaded.
-MODEL_FILES = ("models.json", "models-store.json")
+# Where Pi states the window of a model it knows. Read in this order: the store
+# Pi filled when it resolved its providers, then a hand-written model file, which
+# only fills the gaps. Both lose to the transcript, which states what the human
+# already saw in Pi's own status bar.
+MODEL_FILES = ("models-store.json", "models.json")
 
 TRANSCRIPT_SUFFIXES = (".jsonl", ".json")
 
@@ -359,41 +361,45 @@ def last_turn(path: Path) -> dict | None:
 
 
 def _windows(document: object) -> dict[str, int]:
-    """Every `contextWindow` a Pi model file states, keyed by model id and name."""
+    """Every `contextWindow` a Pi model file states, keyed by model id and name.
+
+    The whole document is walked instead of one known shape: a hand-written
+    `models.json` nests providers under `providers`, but the store Pi downloaded
+    keeps every provider at the top level (`{"opencode-go": {"models": [...]}}`),
+    so a lookup that only walked `providers.*` never found the real machine's
+    model. A window that is not a positive integer is not an answer.
+    """
     windows: dict[str, int] = {}
-    providers = document.get("providers") if isinstance(document, dict) else None
-    if not isinstance(providers, dict):
-        return windows
-    for provider in providers.values():
-        if not isinstance(provider, dict):
+    for node in _mappings(document):
+        window = _positive_int(node.get("contextWindow"))
+        if window is None:
             continue
-        models = provider.get("models")
-        if isinstance(models, list):
-            for model in models:
-                if not isinstance(model, dict):
-                    continue
-                window = model.get("contextWindow")
-                if not isinstance(window, int) or isinstance(window, bool) or window <= 0:
-                    continue
-                for key in (model.get("id"), model.get("name")):
-                    if isinstance(key, str) and key.strip():
-                        windows.setdefault(key.strip(), window)
-        overrides = provider.get("modelOverrides")
-        if isinstance(overrides, dict):
+        for key in (node.get("id"), node.get("name")):
+            if isinstance(key, str) and key.strip():
+                windows.setdefault(key.strip(), window)
+
+    providers = document.get("providers") if isinstance(document, dict) else None
+    if isinstance(providers, dict):
+        for provider in providers.values():
+            overrides = provider.get("modelOverrides") \
+                if isinstance(provider, dict) else None
+            if not isinstance(overrides, dict):
+                continue
             for key, override in overrides.items():
                 if not isinstance(key, str) or not isinstance(override, dict):
                     continue
-                window = override.get("contextWindow")
-                if isinstance(window, int) and not isinstance(window, bool) and window > 0:
+                window = _positive_int(override.get("contextWindow"))
+                if window is not None:
                     windows[key] = window
     return windows
 
 
 def context_window(model: str | None) -> int | None:
-    """The window Pi's model configuration states for a model, or None.
+    """The window a Pi model file states for a model, or None.
 
-    The transcript carries no window, so this is the only source: when it says
-    nothing the caller states that it is unknown instead of inventing a number.
+    The transcript is asked first (see `last_presence`); this is the fallback for
+    a transcript that carries no presence record. When neither says anything the
+    caller states that it is unknown instead of inventing a number.
     """
     if not isinstance(model, str) or not model.strip():
         return None
@@ -408,6 +414,92 @@ def context_window(model: str | None) -> int | None:
         if wanted in windows:
             return windows[wanted]
     return None
+
+
+def _positive_int(value: object) -> int | None:
+    """A count a source states, or None. `True` is not a count."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _percent(value: object) -> int | None:
+    """A stated percentage: a whole number from 0 to 100, or nothing."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value <= 100 else None
+
+
+def _mappings(node: object):
+    """Every mapping of a document, in the order the document holds them."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            yield current
+            stack.extend(reversed(list(current.values())))
+        elif isinstance(current, list):
+            stack.extend(reversed(current))
+
+
+# What a presence record states about the model Pi is running. Where the record
+# sits on the line changes between versions and between transports, so it is
+# found by its fields instead of by a path.
+PRESENCE_FIELDS = ("contextPct", "contextWindow")
+
+
+def _presence(record: object) -> dict | None:
+    """The presence block a transcript line carries, wherever the line puts it."""
+    candidates = [node for node in _mappings(record)
+                  if any(field in node for field in PRESENCE_FIELDS)]
+    if not candidates:
+        return None
+    complete = [node for node in candidates
+                if all(field in node for field in PRESENCE_FIELDS)]
+    return (complete or candidates)[0]
+
+
+def last_presence(path: Path, session_id: str | None = None) -> dict | None:
+    """The last presence record of a transcript, or None.
+
+    Pi writes, beside the message, the figures its own status bar shows: the
+    percentage of the window it is running and the size of that window. That is
+    the number the human already read, so it is the one to trust; the last such
+    record wins, as in `last_turn`, because a session can change models.
+    """
+    found: dict | None = None
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or '"context' not in line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                block = _presence(record)
+                if block is None:
+                    continue
+                # A transcript also stores other sessions' presence blocks:
+                # intercom tool results carry them, with their own context and
+                # window. Borrowing one reports a neighbour's percentage, so only
+                # a block that identifies itself as this session counts.
+                if session_id and block.get("id") != session_id:
+                    continue
+                window = _positive_int(block.get("contextWindow"))
+                percent = _percent(block.get("contextPct"))
+                model = block.get("model")
+                found = {
+                    "percent": percent,
+                    "window": window,
+                    "tokens": _positive_int(block.get("contextTokens")),
+                    "model": (model if isinstance(model, str) and model.strip()
+                              else None),
+                }
+    except OSError:
+        return None
+    return found
 
 
 def _usage(entry: dict) -> dict:
@@ -439,14 +531,28 @@ def _usage(entry: dict) -> dict:
 
     block["model"] = turn["model"]
     block["total_tokens"] = turn["total_tokens"]
-    window = context_window(turn["model"])
+
+    presence = last_presence(path, block["session_id"]) or {}
+    model = turn["model"] or presence.get("model")
+    window = presence.get("window") or context_window(model)
     block["context_window"] = window
+    # The stated percentage wins over the one this code could divide out: Pi
+    # counted what it actually holds, and a second, disagreeing number would be
+    # a number nobody asked for.
+    percent = presence.get("percent")
+    if percent is None and window:
+        percent = round(100 * turn["total_tokens"] / window)
+    block["percent"] = percent
 
     parts = [f"{turn['total_tokens']:,} tokens"]
     parts.append(f"model {turn['model']}" if turn["model"] else "model unknown")
-    if window:
-        block["percent"] = round(100 * turn["total_tokens"] / window)
-        parts.append(f"about {block['percent']}% of a {window:,}-token window")
+    if percent is not None and window:
+        parts.append(f"about {percent}% of a {window:,}-token window")
+    elif percent is not None:
+        # A window nobody stated is not invented, but the percentage Pi gave is
+        # still the human's own reading, so it is shown without a size.
+        parts.append(f"about {percent}% of its context window · "
+                     "the window size is unknown")
     else:
         parts.append("no context window known: no percentage")
     block["detail"] = " · ".join(parts)
