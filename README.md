@@ -13,6 +13,11 @@ Early prototype: `init`, `discover`, `ls`, `status`, `doctor`, `start`,
 `recover`, `rename`, `handoff` and `templates` exist, but there is no memory
 integration yet. Do not expect stability.
 
+[`docs/cli.md`](docs/cli.md) is the reference: every command, its exact usage,
+what each flag and positional does and the exit codes it can return. This README
+is the other half — when and why to reach for each command — and a test keeps the
+reference from falling behind the code in silence.
+
 ## Requirements
 
 - Python 3.10 or newer
@@ -112,10 +117,9 @@ A terminal that exists but is running something that is not a shell is never
 closed and never typed into, whatever the flags say: that tab may hold someone
 else's work. The role is reported as a failure.
 
-| Flag | What it does |
-| --- | --- |
-| `--recreate` | Recreate a tab that has disappeared, resuming its session. Without it, a missing tab is a failure and nothing is created. |
-| `--fresh` | A new session instead of resuming the recorded one. |
+Every flag of `agentorch start`, what it does on each path and the exit codes are
+in [`docs/cli.md`](docs/cli.md#agentorch-start); the paragraphs above are the
+workflow those flags implement.
 
 ## Catching a running agent up
 
@@ -179,13 +183,10 @@ no new document is created and the document is left exactly as written. The run
 states the document's age in words (`reusing the handoff written 2h ago`), so
 reusing something from last week is visible rather than silent.
 
-| Flag | What it does |
-| --- | --- |
-| `--swap` | Replace the role's session with the validated handoff. Refused when `pi.bootstrap` is `none`. |
-| `--use-existing` | With `--swap` only: reuse the newest valid handoff instead of asking the agent for a new one. Without `--swap` it is refused, because there is no session to replace and nothing is sent or written. |
-| `--force` | Ask the agent again even when a valid handoff already exists. Cannot be combined with `--use-existing`. |
-| `--all` | Every registered role, in sequence; the run stops at the first failure and says the rest were not touched. |
-| `--timeout` | Seconds to wait per agent (300 by default). |
+Every flag of `agentorch handoff run` — including `--all` and `--timeout`, and
+the combinations the command refuses — is in
+[`docs/cli.md`](docs/cli.md#agentorch-handoff-run); the paragraphs above are the
+relief this implements.
 
 Reuse is only as good as the document on disk. The `git.head` check is not
 waived: a repository that moved since the document was written is refused,

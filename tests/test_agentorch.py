@@ -4224,3 +4224,145 @@ def test_recover_is_registered_with_its_help_line(project):
     assert listed.returncode == 0
     assert ("Ask a running agent to catch up without replacing its session."
             in " ".join(listed.stdout.split()))
+
+
+# --- the command line reference --------------------------------------------
+
+CLI_DOC = Path(__file__).resolve().parent.parent / "docs" / "cli.md"
+# A command section is `## `agentorch start``; the shared sections have no
+# backticks and are not compared with the parsers.
+COMMAND_HEADING = re.compile(r"^## `(agentorch(?: [^`]*)?)`\s*$")
+
+
+def parsers_from_the_cli():
+    """Every parser `agentorch.cli` defines: the root, then each subcommand.
+
+    The parsers come from the module itself, not from the `--help` text it
+    renders, so the test states the contract and not one formatting of it.
+    `main()` is the only place the tree is built, so its single `parse_args()`
+    call is intercepted before anything is resolved or executed.
+    """
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    import argparse
+    import agentorch.cli as cli
+
+    captured = {}
+
+    class Intercepted(Exception):
+        pass
+
+    def intercept(self, args=None, namespace=None):
+        captured.setdefault("root", self)
+        raise Intercepted
+
+    original = argparse.ArgumentParser.parse_args
+    argparse.ArgumentParser.parse_args = intercept
+    try:
+        with pytest.raises(Intercepted):
+            cli.main()
+    finally:
+        argparse.ArgumentParser.parse_args = original
+
+    found = []
+
+    def walk(parser, path):
+        found.append((path, parser))
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, child in action.choices.items():
+                    walk(child, f"{path} {name}")
+
+    walk(captured["root"], "agentorch")
+    return found
+
+
+def interface_of(parser):
+    """The options and positionals one parser defines, `-h`/`--help` aside."""
+    import argparse
+    names = []
+    for action in parser._actions:
+        if isinstance(action, (argparse._HelpAction, argparse._SubParsersAction)):
+            continue
+        names.append(max(action.option_strings, key=len)
+                     if action.option_strings else action.dest)
+    return names
+
+
+def documented_sections():
+    """The command sections of docs/cli.md, in document order."""
+    sections = []
+    body = None
+    for line in CLI_DOC.read_text(encoding="utf-8").splitlines():
+        heading = COMMAND_HEADING.match(line)
+        if heading:
+            body = []
+            sections.append((heading.group(1), body))
+        elif line.startswith("## "):
+            body = None
+        elif body is not None:
+            body.append(line)
+    return [(path, "\n".join(lines)) for path, lines in sections]
+
+
+def documented_names(body):
+    """The names in the `### Arguments and options` table of one section."""
+    names, inside = [], False
+    for line in body.splitlines():
+        if line.startswith("### "):
+            inside = line.strip().lower() == "### arguments and options"
+            continue
+        if not inside or not line.startswith("|"):
+            continue
+        cell = line.split("|")[1].strip()
+        found = re.fullmatch(r"`([^`]+)`", cell)
+        if found:
+            names.append(found.group(1).strip())
+    return names
+
+
+def documented_usage(body):
+    """The `usage:` line of one section, with its wrapping neutralised."""
+    line = next((line for line in body.splitlines()
+                 if line.strip().startswith("usage: ")), None)
+    return " ".join(line.split()) if line else None
+
+
+def test_every_option_and_subcommand_is_in_the_documented_contract():
+    parsed = parsers_from_the_cli()
+    documented = documented_sections()
+    bodies = dict(documented)
+    order = [path for path, _ in documented]
+    expected = [path for path, _ in parsed]
+
+    problems = []
+    for path, parser in parsed:
+        body = bodies.get(path)
+        if body is None:
+            problems.append(f"{path}: the parser defines it and docs/cli.md "
+                            "has no section for it")
+            continue
+        names = interface_of(parser)
+        written = documented_names(body)
+        for name in names:
+            if name not in written:
+                problems.append(f"{path}: {name!r} is an option of the parser "
+                                "and docs/cli.md does not document it")
+        for name in written:
+            if name not in names:
+                problems.append(f"{path}: docs/cli.md documents {name!r} and "
+                                "the parser does not define it")
+        usage = documented_usage(body)
+        real = " ".join(parser.format_usage().split())
+        if usage != real:
+            problems.append(f"{path}: docs/cli.md states the usage as "
+                            f"{usage!r} and the parser prints {real!r}")
+    for path in order:
+        if path not in expected:
+            problems.append(f"docs/cli.md documents {path!r}, which the "
+                            "parsers do not define")
+    if order != expected:
+        problems.append("docs/cli.md documents the commands in this order: "
+                        f"{order}; the top-level help lists them as {expected}")
+
+    assert not problems, "\n".join(problems)
