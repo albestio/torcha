@@ -55,6 +55,15 @@ Only `.torcha/` in the target project:
 `init` writes a default `agents.json` if there is none. Edit it to change the
 tabs, their names and their roles.
 
+## Migrating a project adopted before the rename
+
+A project set up before the rename still keeps its data in `.agentorch/`. The
+tool does not move it on its own: every command refuses that layout and points
+at `torcha migrate`, which copies `.agentorch/` to `.torcha/`, verifies the copy
+and leaves the original untouched. Run it once per project, check that the tool
+works against `.torcha/`, and remove the old directory yourself when you are
+satisfied.
+
 That file is seeded from what the workspace already runs — the named tabs with a
 live agent — and after that `init` only reports. A named live tab with an agent
 that the configuration does not declare is named at the end of every run, after

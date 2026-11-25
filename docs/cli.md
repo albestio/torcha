@@ -60,7 +60,7 @@ dispatches to one subcommand; with no subcommand at all it prints the same help
 `--help` prints; it never runs a command of its own.
 
 ```text
-usage: torcha [-h] [--version] [--project PATH] {init,discover,status,ls,doctor,start,recover,rename,templates,handoff} ...
+usage: torcha [-h] [--version] [--project PATH] {init,migrate,discover,status,ls,doctor,start,recover,rename,templates,handoff} ...
 ```
 
 ### Arguments and options
@@ -113,6 +113,43 @@ usage: torcha init [-h] [--plain] [--json] [--project PATH]
 | --- | --- |
 | 0 | Space and tabs reconciled, the registry says `ready`. |
 | 1 | A precondition failed (not a git repository and the input is not interactive, `git` or `herdr-app` not on PATH), Herdr refused a step, the configuration is invalid, or the interview closed leaving roles unfilled — in that last case nothing is applied. |
+| 2 | Usage error. |
+
+## `torcha migrate`
+
+Copy the runtime data directory of a project adopted before the rename,
+`.agentorch/`, to its new name, `.torcha/`, verify the copy and leave the
+original untouched. Nothing is moved or deleted, and nothing migrates on its
+own: every other command refuses that layout with `This project still keeps its
+data in <path>: run 'torcha migrate' to copy it to <path>.` until this command
+has run.
+
+The copy is verified before the command reports success: the file count matches,
+every copied file is byte-identical to its source, and `agents.json` and
+`registry.json`, when present, are read back with the same loaders the rest of
+the tool uses. The old directory stays where it was, so remove it yourself once
+the project works against `.torcha/`.
+
+A project with both directories is refused, naming both paths, because guessing
+which one is current is worse than asking. A project that already has `.torcha/`
+and no `.agentorch/` has nothing to migrate: the command says so and exits 0.
+
+```text
+usage: torcha migrate [-h] [--project PATH]
+```
+
+### Arguments and options
+
+| Name | What it does |
+| --- | --- |
+| `--project` | `--project PATH`, the project directory to act on; the current one by default. Shared by every command (see above). |
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The data was copied and verified, or there was nothing to migrate. |
+| 1 | Both directories exist and the command refuses to guess, the old path is not a directory, or the copy did not match its source. |
 | 2 | Usage error. |
 
 ## `torcha discover`

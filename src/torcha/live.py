@@ -124,10 +124,17 @@ def active_named(tabs: list[LiveTab]) -> list[LiveTab]:
 # marker, not a role: adopting it would add a tab nobody uses to the team.
 SETUP_TAB_NAME = "Torcha"
 
+# The marker before the rename. An adopted project still has this tab, and it
+# must stay a marker rather than becoming an adoptable role.
+LEGACY_SETUP_TAB_NAME = "Agentorch"
+
+SETUP_TAB_NAMES = (SETUP_TAB_NAME, LEGACY_SETUP_TAB_NAME)
+
 
 def is_setup_tab(tab: LiveTab) -> bool:
     """Whether the tab carries the setup marker a previous interview left."""
-    return tab.name.strip().casefold() == SETUP_TAB_NAME.casefold()
+    name = tab.name.strip().casefold()
+    return name in {marker.casefold() for marker in SETUP_TAB_NAMES}
 
 
 def own_tab() -> dict | None:

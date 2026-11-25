@@ -3187,6 +3187,21 @@ def test_an_unidentifiable_terminal_is_left_alone(project):
     assert project.options_for("tab.rename") == []
 
 
+def test_the_old_setup_tab_name_is_still_the_setup_tab(project):
+    """Un tab `Agentorch` que dejó una entrevista anterior sigue sin ser un rol."""
+    live = project.module.live
+
+    def tab(name):
+        return live.LiveTab(name=name, app="pi", status=None, active=False,
+                            renamed=True, candidate=None)
+
+    assert live.is_setup_tab(tab("Torcha"))
+    assert live.is_setup_tab(tab("Agentorch"))
+    assert live.role_tabs([tab("Agentorch")]) == []
+    assert [item.name for item in live.role_tabs([tab("Agentorch"), tab("Worker 1")])] \
+        == ["Worker 1"]
+
+
 # --- language rules in the setup skill -------------------------------------
 
 
@@ -4556,6 +4571,117 @@ def test_recover_is_registered_with_its_help_line(project):
     assert listed.returncode == 0
     assert ("Ask a running agent to catch up without replacing its session."
             in " ".join(listed.stdout.split()))
+
+
+# --- migrating the runtime data directory -----------------------------------
+
+
+def run_cli(project, *args):
+    """The real entry point, with `--project` applied before the subcommand."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    return subprocess.run(
+        [sys.executable, "-m", "torcha", "--project", str(project.root), *args],
+        cwd=project.root, env=env, capture_output=True, text=True)
+
+
+def snapshot_tree(root):
+    return {str(path.relative_to(root)): path.read_bytes()
+            for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def make_old_layout(project):
+    """The data of an adopted project, under the old directory name."""
+    data = project.root / ".torcha"
+    write_registry(project)
+    (data / "bootstrap").mkdir(exist_ok=True)
+    (data / "bootstrap" / "orchestrator.md").write_text("Bootstrap text.\n")
+    (data / "handoffs").mkdir(exist_ok=True)
+    (data / "handoffs" / "2026-11-25.md").write_text("# Handoff\n")
+    legacy = project.root / ".agentorch"
+    data.rename(legacy)
+    return legacy
+
+
+def test_migrate_copies_and_verifies_the_old_data_directory(project):
+    legacy = make_old_layout(project)
+    original = snapshot_tree(legacy)
+
+    result = run_cli(project, "migrate")
+
+    assert result.returncode == 0, result.stderr
+    current = project.root / ".torcha"
+    assert snapshot_tree(legacy) == original        # copy, never move
+    assert snapshot_tree(current) == original
+    assert f"Copied {len(original)} file(s)" in result.stdout
+    for name in original:
+        assert name in result.stdout
+    assert "Verified the copy" in result.stdout
+    assert "agents.json" in result.stdout and "registry.json" in result.stdout
+
+
+def test_migrate_says_there_is_nothing_to_do_when_the_data_is_already_there(
+        project):
+    current = project.root / ".torcha"
+    before = snapshot_tree(current)
+
+    result = run_cli(project, "migrate")
+
+    assert result.returncode == 0, result.stderr
+    assert "Nothing to migrate" in result.stdout
+    assert snapshot_tree(current) == before
+    assert not (project.root / ".agentorch").exists()
+
+
+def test_migrate_refuses_to_guess_when_both_directories_exist(project):
+    current = project.root / ".torcha"
+    legacy = project.root / ".agentorch"
+    legacy.mkdir()
+    (legacy / "agents.json").write_text((current / "agents.json").read_text())
+    before_legacy = snapshot_tree(legacy)
+    before_current = snapshot_tree(current)
+
+    result = run_cli(project, "migrate")
+
+    assert result.returncode == 1
+    assert "refusing to guess" in result.stderr
+    assert str(legacy) in result.stderr and str(current) in result.stderr
+    assert snapshot_tree(legacy) == before_legacy
+    assert snapshot_tree(current) == before_current
+
+
+@pytest.mark.parametrize("args", [
+    ("init", "--plain"), ("discover",), ("status",), ("ls",), ("doctor",),
+    ("start",), ("recover", "orchestrator"),
+    ("rename", "orchestrator", "New name"), ("templates",),
+    ("handoff", "validate", "handoff.md"), ("handoff", "run"),
+])
+def test_every_other_command_refuses_an_unmigrated_project(project, args):
+    legacy = make_old_layout(project)
+
+    result = run_cli(project, *args)
+
+    assert result.returncode == 1, result.stdout
+    assert "torcha migrate" in result.stderr
+    assert str(legacy) in result.stderr
+    assert not (project.root / ".torcha").exists()   # never migrates on its own
+
+
+def test_init_still_works_in_a_project_with_neither_directory(project):
+    (project.root / ".torcha").rename(project.root / "saved-config")
+
+    result = run_cli(project, "init", "--plain")
+
+    assert result.returncode == 0, result.stderr
+    assert (project.root / ".torcha" / "agents.json").exists()
+    assert not (project.root / ".agentorch").exists()
+
+
+def test_the_readme_tells_an_old_project_to_run_migrate():
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(
+        encoding="utf-8")
+    assert "torcha migrate" in readme
 
 
 # --- the command line reference --------------------------------------------

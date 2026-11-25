@@ -22,6 +22,10 @@ PROJECT_NAME = PROJECT_DIR.name
 TORCHA_DIR = PROJECT_DIR / ".torcha"
 
 
+LEGACY_DIR_NAME = ".agentorch"
+"""The runtime data directory before the rename, still present in adopted projects."""
+
+
 CONFIG_FILE = TORCHA_DIR / "agents.json"
 
 
@@ -48,6 +52,24 @@ def configure_project(path: Path | None = None) -> None:
     CONFIG_FILE = TORCHA_DIR / "agents.json"
     REGISTRY_FILE = TORCHA_DIR / "registry.json"
     BOOTSTRAP_DIR = TORCHA_DIR / "bootstrap"
+
+def legacy_dir() -> Path:
+    """The old data directory of the project being acted on."""
+    return PROJECT_DIR / LEGACY_DIR_NAME
+
+def require_current_layout() -> None:
+    """Refuse a project that still keeps its data under the old directory name.
+
+    The migration is explicit on purpose: copying a project behind the human's
+    back is worse than stopping. `torcha migrate` is the only command that runs
+    on that layout, so it never calls this.
+    """
+    legacy, current = legacy_dir(), TORCHA_DIR
+    if legacy.is_dir() and not current.is_dir():
+        raise TorchaError(
+            f"This project still keeps its data in {legacy}: run 'torcha migrate' "
+            f"to copy it to {current}.")
+
 
 def norm_path(value: Any) -> str | None:
     """Normaliza una ruta que llega de Herdr, resolviendo las relativas contra el proyecto."""

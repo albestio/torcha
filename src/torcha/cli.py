@@ -12,6 +12,7 @@ from .commands.handoff import run as run_handoff_command
 from .commands.handoff import validate as validate_handoff_command
 from .commands.init import init
 from .commands.ls import ls
+from .commands.migrate import migrate
 from .commands.recover import recover as recover_command
 from .commands.rename import rename
 from .commands.start import start
@@ -19,7 +20,7 @@ from .commands.status import status
 from .commands.templates import templates
 from .errors import TorchaError
 from .output import error
-from .project import configure_project
+from .project import configure_project, require_current_layout
 
 
 def main() -> int:
@@ -31,6 +32,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command")
     for name, help_text in (
         ("init", "Create or recover the space and its tabs."),
+        ("migrate", "Copy .agentorch/ to .torcha/ and verify the copy."),
         ("discover", "List declared agents and propose an agents.json."),
         ("status", "Compare the registry with what Herdr reports now."),
         ("ls", "List the declared team against the live workspace."),
@@ -106,12 +108,18 @@ def main() -> int:
     args = parser.parse_args()
     try:
         configure_project(Path(args.project) if getattr(args, "project", None) else None)
+        # One place, after `--project` is applied, and never for `migrate`
+        # itself: every other command stops on a project that has not migrated.
+        if args.command not in (None, "migrate"):
+            require_current_layout()
     except TorchaError as exc:
         error(str(exc))
         return 1
     if args.command == "init":
         call = lambda: init(plain=getattr(args, "plain", False),
                             as_json=getattr(args, "json", False))
+    elif args.command == "migrate":
+        call = lambda: migrate()
     elif args.command == "discover":
         call = lambda: discover(live=getattr(args, "live", False),
                                 as_json=getattr(args, "json", False))
