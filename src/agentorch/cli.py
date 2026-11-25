@@ -22,72 +22,73 @@ from .project import configure_project
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="agentorch",
-        description="Bootstrap y recuperación de spaces/tabs Herdr.")
+        description="Bootstrap and recovery of Herdr spaces and tabs.")
     parser.add_argument("--version", action="version", version=f"Agentorch {VERSION}")
     parser.add_argument("--project", metavar="PATH",
-                        help="Directorio del proyecto (por defecto, el actual).")
+                        help="Project directory (the current one by default).")
     sub = parser.add_subparsers(dest="command")
     for name, help_text in (
-        ("init", "Crear o recuperar el space y sus tabs."),
-        ("discover", "Listar agentes declarados y proponer un agents.json."),
-        ("status", "Comparar el registro con lo que Herdr reporta ahora."),
-        ("doctor", "Comprobar las precondiciones que agentorch necesita."),
-        ("start", "Arrancar los agentes que no están en marcha."),
-        ("rename", "Renombrar la tab de un rol."),
-        ("templates", "Listar los equipos predefinidos."),
+        ("init", "Create or recover the space and its tabs."),
+        ("discover", "List declared agents and propose an agents.json."),
+        ("status", "Compare the registry with what Herdr reports now."),
+        ("doctor", "Check the preconditions agentorch needs."),
+        ("start", "Start the agents that are not running."),
+        ("rename", "Rename a role's tab."),
+        ("templates", "List the bundled teams."),
     ):
         child = sub.add_parser(name, help=help_text)
         if name == "init":
             child.add_argument("--plain", action="store_true",
-                               help="No abrir la entrevista; materializar directamente.")
+                               help="Do not open the interview; materialise directly.")
         child.add_argument("--project", metavar="PATH", default=argparse.SUPPRESS,
-                           help="Directorio del proyecto (por defecto, el actual).")
+                           help="Project directory (the current one by default).")
         if name == "discover":
             child.add_argument("--live", action="store_true",
-                               help="Incluir las tabs abiertas en Herdr y el rol que "
-                                    "cada una parece tener.")
+                               help="Include the tabs open in Herdr and the role "
+                                    "each one appears to have.")
             child.add_argument("--json", action="store_true",
-                               help="Salida JSON completa, con ids de tab y terminal.")
+                               help="Full JSON output, with tab and terminal ids.")
         if name == "templates":
             child.add_argument("--json", action="store_true",
-                               help="Salida JSON para scripts.")
+                               help="JSON output for scripts.")
         if name == "status":
             child.add_argument("--json", action="store_true",
-                               help="Salida JSON para scripts.")
+                               help="JSON output for scripts.")
         if name == "doctor":
             child.add_argument("--json", action="store_true",
-                               help="Salida JSON para scripts.")
+                               help="JSON output for scripts.")
         if name == "rename":
-            child.add_argument("role", help="Rol del registro.")
-            child.add_argument("name", help="Nombre nuevo de la tab.")
+            child.add_argument("role", help="Role in the registry.")
+            child.add_argument("name", help="New name of the tab.")
         if name == "start":
             child.add_argument("role", nargs="?",
-                               help="Arrancar solo este rol.")
+                               help="Start only this role.")
             child.add_argument("--fresh", action="store_true",
-                               help="Sesión nueva en vez de reanudar la existente.")
+                               help="A new session instead of resuming the existing one.")
             child.add_argument("--recreate", action="store_true",
-                               help="Recrear las tabs que se hayan cerrado.")
-    handoff_parser = sub.add_parser("handoff", help="Documentos de handoff.")
+                               help="Recreate the tabs that have been closed.")
+    handoff_parser = sub.add_parser("handoff", help="Handoff documents.")
     handoff_parser.add_argument("--project", metavar="PATH", default=argparse.SUPPRESS,
-                                help="Directorio del proyecto (por defecto, el actual).")
+                                help="Project directory (the current one by default).")
     handoff_sub = handoff_parser.add_subparsers(dest="handoff_command")
     run_parser = handoff_sub.add_parser(
-        "run", help="Pedir el handoff a un agente y validarlo.")
-    run_parser.add_argument("role", nargs="?", help="Rol del registro.")
+        "run", help="Ask an agent for its handoff and validate it.")
+    run_parser.add_argument("role", nargs="?", help="Role in the registry.")
     run_parser.add_argument("--all", action="store_true",
-                            help="Todos los roles, en secuencia.")
+                            help="Every role, in sequence.")
     run_parser.add_argument("--swap", action="store_true",
-                            help="Reemplazar la sesión tras validar el handoff.")
+                            help="Replace the session after validating the handoff.")
     run_parser.add_argument("--timeout", type=float, default=300.0,
-                            help="Segundos de espera por agente (300 por defecto).")
+                            help="Seconds to wait per agent (300 by default).")
     run_parser.add_argument("--force", action="store_true",
-                            help="Volver a pedir el handoff aunque ya haya uno válido.")
-    validate_parser = handoff_sub.add_parser("validate", help="Validar un handoff.")
-    validate_parser.add_argument("path", help="Ruta del fichero de handoff.")
+                            help="Ask for the handoff again even when there "
+                                 "is already a valid one.")
+    validate_parser = handoff_sub.add_parser("validate", help="Validate a handoff.")
+    validate_parser.add_argument("path", help="Path to the handoff file.")
     validate_parser.add_argument("--json", action="store_true",
-                                 help="Salida JSON para scripts.")
+                                 help="JSON output for scripts.")
     validate_parser.add_argument("--check-head", action="store_true",
-                                 help="Comparar git.head con el commit actual.")
+                                 help="Compare git.head with the current commit.")
     args = parser.parse_args()
     try:
         configure_project(Path(args.project) if getattr(args, "project", None) else None)

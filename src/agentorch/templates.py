@@ -46,13 +46,13 @@ def load(name: str) -> dict:
     """The full template, ready to be written as agents.json."""
     path = TEMPLATES_DIR / f"{name}.json"
     if not path.is_file():
-        raise AgentorchError(f"No existe el template {name!r}. "
-                             f"Disponibles: {[t['name'] for t in available()]}")
+        raise AgentorchError(f"There is no template {name!r}. "
+                             f"Available: {[t['name'] for t in available()]}")
     data = _load_file(path)
     if data is None:
-        raise AgentorchError(f"El template {name!r} no es un objeto con 'tabs': {path}")
+        raise AgentorchError(f"Template {name!r} is not an object with 'tabs': {path}")
     tabs = [tab for tab in data["tabs"] if isinstance(tab, dict)]
     if not tabs:
-        raise AgentorchError(f"El template {name!r} no tiene tabs utilizables.")
+        raise AgentorchError(f"Template {name!r} has no usable tabs.")
     data["tabs"] = tabs
     return data

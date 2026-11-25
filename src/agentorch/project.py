@@ -41,7 +41,7 @@ def configure_project(path: Path | None = None) -> None:
     global CONFIG_FILE, REGISTRY_FILE, BOOTSTRAP_DIR
     target = (path or Path.cwd()).expanduser().resolve()
     if not target.is_dir():
-        raise AgentorchError(f"No existe el directorio del proyecto: {target}")
+        raise AgentorchError(f"The project directory does not exist: {target}")
     PROJECT_DIR = target
     PROJECT_NAME = target.name
     AGENTORCH_DIR = target / ".agentorch"

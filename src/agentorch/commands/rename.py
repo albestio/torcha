@@ -16,26 +16,26 @@ from ..registry import load_registry, save_registry
 def rename(role: str, name: str) -> int:
     name = name.strip()
     if not name:
-        note("El nombre nuevo no puede estar vacío.")
+        note("The new name cannot be empty.")
         return 1
 
     registry = load_registry()
     entries = (registry.get("herdr") or {}).get("tabs") or {}
     entry = entries.get(role)
     if entry is None:
-        note(f"No hay ningún rol {role!r} en el registro. Ejecuta 'agentorch init'.")
+        note(f"There is no role {role!r} in the registry. Run 'agentorch init'.")
         return 1
 
     tab = entry.get("tab_id")
     if not tab:
-        note(f"{role}: el registro no tiene tab_id; ejecuta 'agentorch init'.")
+        note(f"{role}: the registry has no tab_id; run 'agentorch init'.")
         return 1
 
     data = parse_json_output(run_app(["ls"]), "herdr-app ls")
     exists = any(tab_id(inner) == tab
                  for space in get_spaces(data) for inner in tabs_of(space))
     if not exists:
-        note(f"{role}: la tab {tab} ya no existe.")
+        note(f"{role}: tab {tab} no longer exists.")
         return 1
 
     try:
@@ -46,5 +46,5 @@ def rename(role: str, name: str) -> int:
 
     entry["name"] = name
     save_registry(registry)
-    log(f"{role}: tab renombrada a {name!r}")
+    log(f"{role}: tab renamed to {name!r}")
     return 0

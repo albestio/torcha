@@ -68,7 +68,7 @@ def secret_findings(data: Any) -> list[str]:
     findings = []
     for path, text in walk_strings(data):
         if any(pattern.search(text) for pattern in SECRET_PATTERNS):
-            findings.append(f"{path}: parece contener una credencial")
+            findings.append(f"{path}: looks like it contains a credential")
     return findings
 
 
@@ -84,80 +84,80 @@ def validate_handoff(data: Any, *, project_name: str | None = None,
                      agent_id: str | None = None) -> list[str]:
     """Everything wrong with a handoff document. An empty list means valid."""
     if not isinstance(data, dict):
-        return ["el documento no es un objeto JSON"]
+        return ["the document is not a JSON object"]
 
     problems: list[str] = []
 
     if data.get("schema_version") != SCHEMA_VERSION:
-        problems.append(f"schema_version debe ser {SCHEMA_VERSION}, "
-                        f"es {data.get('schema_version')!r}")
+        problems.append(f"schema_version must be {SCHEMA_VERSION}, "
+                        f"is {data.get('schema_version')!r}")
 
     for field in REQUIRED_STRINGS:
         value = data.get(field)
         if not isinstance(value, str) or not value.strip():
-            problems.append(f"falta '{field}' o no es una cadena no vacía")
+            problems.append(f"'{field}' is missing or is not a non-empty string")
 
     handoff_id = data.get("handoff_id")
     if isinstance(handoff_id, str) and handoff_id:
         try:
             uuid.UUID(handoff_id)
         except ValueError:
-            problems.append(f"'handoff_id' no es un UUID: {handoff_id!r}")
+            problems.append(f"'handoff_id' is not a UUID: {handoff_id!r}")
 
     created_at = data.get("created_at")
     if isinstance(created_at, str) and created_at and not _iso(created_at):
-        problems.append(f"'created_at' no es ISO-8601: {created_at!r}")
+        problems.append(f"'created_at' is not ISO-8601: {created_at!r}")
 
     status = data.get("status")
     if isinstance(status, str) and status and status not in STATUSES:
-        problems.append(f"'status' debe ser uno de {STATUSES}: {status!r}")
+        problems.append(f"'status' must be one of {STATUSES}: {status!r}")
 
     for field in REQUIRED_STRING_LISTS:
         value = data.get(field)
         if not isinstance(value, list):
-            problems.append(f"'{field}' debe ser una lista")
+            problems.append(f"'{field}' must be a list")
         elif any(not isinstance(item, str) for item in value):
-            problems.append(f"'{field}' debe contener solo cadenas")
+            problems.append(f"'{field}' must contain strings only")
 
     files = data.get("files_touched")
     if not isinstance(files, list):
-        problems.append("'files_touched' debe ser una lista")
+        problems.append("'files_touched' must be a list")
     else:
         for index, item in enumerate(files):
             if not isinstance(item, dict):
-                problems.append(f"'files_touched[{index}]' debe ser un objeto")
+                problems.append(f"'files_touched[{index}]' must be an object")
                 continue
             if not isinstance(item.get("path"), str) or not item["path"].strip():
-                problems.append(f"'files_touched[{index}].path' falta")
+                problems.append(f"'files_touched[{index}].path' is missing")
             if not isinstance(item.get("reason"), str) or not item["reason"].strip():
-                problems.append(f"'files_touched[{index}].reason' falta")
+                problems.append(f"'files_touched[{index}].reason' is missing")
 
     validation = data.get("validation")
     if not isinstance(validation, dict):
-        problems.append("'validation' debe ser un objeto")
+        problems.append("'validation' must be an object")
     else:
         for field in ("commands_run", "results"):
             value = validation.get(field)
             if not isinstance(value, list) or any(not isinstance(x, str) for x in value):
-                problems.append(f"'validation.{field}' debe ser una lista de cadenas")
+                problems.append(f"'validation.{field}' must be a list of strings")
 
     git = data.get("git")
     if not isinstance(git, dict):
-        problems.append("'git' debe ser un objeto")
+        problems.append("'git' must be an object")
     else:
         for field in ("branch", "head", "status_summary"):
             if not isinstance(git.get(field), str) or not git[field].strip():
-                problems.append(f"'git.{field}' falta o está vacío")
+                problems.append(f"'git.{field}' is missing or empty")
         head = git.get("head")
         if isinstance(head, str) and head and not HEX.match(head):
-            problems.append(f"'git.head' no es un sha de 40 o 64 caracteres: {head!r}")
+            problems.append(f"'git.head' is not a 40 or 64 character sha: {head!r}")
 
     if project_name is not None and data.get("project") != project_name:
-        problems.append(f"'project' es {data.get('project')!r}, "
-                        f"se esperaba {project_name!r}")
+        problems.append(f"'project' is {data.get('project')!r}, "
+                        f"expected {project_name!r}")
     if agent_id is not None and data.get("agent_id") != agent_id:
-        problems.append(f"'agent_id' es {data.get('agent_id')!r}, "
-                        f"se esperaba {agent_id!r}")
+        problems.append(f"'agent_id' is {data.get('agent_id')!r}, "
+                        f"expected {agent_id!r}")
 
     problems.extend(secret_findings(data))
     return problems
@@ -165,13 +165,13 @@ def validate_handoff(data: Any, *, project_name: str | None = None,
 
 def load_handoff(path: Path) -> dict[str, Any]:
     if not path.exists():
-        raise AgentorchError(f"No existe el handoff: {path}")
+        raise AgentorchError(f"The handoff does not exist: {path}")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise AgentorchError(f"No se pudo leer {path}: {exc}") from exc
+        raise AgentorchError(f"Could not read {path}: {exc}") from exc
     if not isinstance(data, dict):
-        raise AgentorchError(f"El handoff no es un objeto JSON: {path}")
+        raise AgentorchError(f"The handoff is not a JSON object: {path}")
     return data
 
 

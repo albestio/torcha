@@ -116,7 +116,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
     wanted = (registry.get("herdr") or {}).get("space_id")
     space = next((s for s in spaces if space_id(s) == wanted), None)
     if space is None:
-        note(f"El space {wanted!r} del registro ya no existe.")
+        note(f"The space {wanted!r} in the registry no longer exists.")
         return 1
 
     entries = (registry.get("herdr") or {}).get("tabs") or {}
@@ -125,7 +125,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
     known_ids = {tab_id(tab) for tab in tabs_of(space) if tab_id(tab)}
 
     if role is not None and role not in entries:
-        note(f"No hay ningún rol {role!r} en el registro.")
+        note(f"There is no role {role!r} in the registry.")
         return 1
 
     started = skipped = failed = 0
@@ -135,19 +135,19 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
 
         terminal = entry.get("terminal_id")
         if not terminal:
-            note(f"{key}: el registro no tiene terminal; ejecuta 'agentorch init'.")
+            note(f"{key}: the registry has no terminal; run 'agentorch init'.")
             failed += 1
             continue
         if _find_terminal(space, entry.get("tab_id"), terminal) is None:
             if not recreate:
-                note(f"{key}: la tab o el terminal ya no existen "
-                     "(usa --recreate para levantarla).")
+                note(f"{key}: the tab or the terminal no longer exist "
+                     "(use --recreate to bring it back).")
                 failed += 1
                 continue
             previous_session = entry.get("session_id")
             rebuilt = _recreate(key, entry, config, wanted, fresh, known_ids)
             if rebuilt is None:
-                note(f"{key}: no se pudo recrear la tab.")
+                note(f"{key}: the tab could not be recreated.")
                 failed += 1
                 continue
             entry.update({"tab_id": rebuilt["tab_id"],
@@ -156,7 +156,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
                           "session_id": rebuilt["session_id"]})
             terminal = rebuilt["terminal_id"]
             if not wait_for_agent(terminal, executable, timeout, interval):
-                note(f"{key}: la tab se recreó pero el agente no apareció.")
+                note(f"{key}: the tab was recreated but the agent did not appear.")
                 failed += 1
                 save_registry(registry)
                 continue
@@ -164,16 +164,16 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
                           "app": config["pi"]["executable"]})
             save_registry(registry)
             resumed = rebuilt["session_id"] == previous_session
-            log(f"{key}: tab recreada ({rebuilt['tab_id']}), "
-                f"sesión {'reanudada' if resumed else 'nueva'}")
+            log(f"{key}: tab recreated ({rebuilt['tab_id']}), "
+                f"{'session resumed' if resumed else 'new session'}")
             started += 1
             continue
         if agent_running(terminal, executable):
-            log(f"{key}: ya está en marcha")
+            log(f"{key}: already running")
             skipped += 1
             continue
         if not is_shell(terminal):
-            note(f"{key}: el terminal no es un shell; no se envía nada a ciegas.")
+            note(f"{key}: the terminal is not a shell; nothing is sent blindly.")
             failed += 1
             continue
 
@@ -182,12 +182,12 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
         resumed = not fresh and entry.get("session_id") == session_id
         argv = pi_argv(config, {"key": key}, session_id)
         if argv is None:
-            note(f"{key}: el bootstrap está desactivado en agents.json.")
+            note(f"{key}: bootstrap is disabled in agents.json.")
             skipped += 1
             continue
         previous_tab = entry.get("tab_id")
         if not previous_tab:
-            note(f"{key}: el registro no tiene tab; ejecuta 'agentorch init'.")
+            note(f"{key}: the registry has no tab; run 'agentorch init'.")
             failed += 1
             continue
 
@@ -196,7 +196,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
         try:
             _close_tab(previous_tab)
         except AgentorchError as exc:
-            note(f"{key}: no se pudo cerrar la tab {previous_tab}: {exc}")
+            note(f"{key}: could not close tab {previous_tab}: {exc}")
             failed += 1
             continue
         rebuilt = _create_tab(key, entry, config, wanted, argv, session_id,
@@ -207,7 +207,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
             entry.update({"tab_id": None, "terminal_id": None, "pane_id": None,
                           "pid": None, "app": None, "session_id": None})
             save_registry(registry)
-            note(f"{key}: la tab se cerró y la nueva no se pudo crear.")
+            note(f"{key}: the tab was closed and the new one could not be created.")
             failed += 1
             continue
         entry.update({"tab_id": rebuilt["tab_id"],
@@ -217,17 +217,17 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
         terminal = rebuilt["terminal_id"]
 
         if not wait_for_agent(terminal, executable, timeout, interval):
-            note(f"{key}: la tab se recreó pero el agente no apareció "
-                 f"en {timeout:g}s.")
+            note(f"{key}: the tab was recreated but the agent did not appear "
+                 f"in {timeout:g}s.")
             failed += 1
             save_registry(registry)
             continue
 
         entry.update({"pid": terminal_pid(terminal), "app": executable})
         save_registry(registry)
-        log(f"{key}: {'reanudada' if resumed else 'sesión nueva'} "
+        log(f"{key}: {'resumed' if resumed else 'new session'} "
             f"({session_id}), pid={entry['pid']}")
         started += 1
 
-    log(f"{started} arrancada(s), {skipped} ya en marcha, {failed} con problemas")
+    log(f"{started} started, {skipped} already running, {failed} with problems")
     return 1 if failed else 0

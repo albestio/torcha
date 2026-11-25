@@ -42,9 +42,9 @@ def validate(path: str, as_json: bool = False, check_head: bool = False) -> int:
         head = repo_head()
         recorded = (data.get("git") or {}).get("head")
         if head is None:
-            note("no se pudo leer el commit actual: no se verificó git.head")
+            note("could not read the current commit: git.head was not checked")
         elif recorded and head != recorded:
-            problems.append("el repositorio se movió desde el handoff: "
+            problems.append("the repository moved since the handoff: "
                             f"{recorded} → {head}")
 
     if as_json:
@@ -55,28 +55,29 @@ def validate(path: str, as_json: bool = False, check_head: bool = False) -> int:
     if problems:
         for problem in problems:
             note(f"  {problem}")
-        note(f"Handoff inválido: {len(problems)} problema(s) en {path}")
+        note(f"Invalid handoff: {len(problems)} problem(s) in {path}")
         return 1
 
-    log(f"Handoff válido: {path}")
+    log(f"Valid handoff: {path}")
     return 0
 
 
 # --- run: ask the agent for its handoff ------------------------------------
 
 RELEVO = (
-    "Te van a relevar. Rellena el handoff en {path} con lo que sepas y hayas "
-    "medido. Respeta la forma de cada campo:\n"
-    "- `objective` y `current_state`: una frase cada uno.\n"
+    "You are about to be relieved. Fill in the handoff at {path} with what you "
+    "know and have measured. Respect the shape of every field:\n"
+    "- `objective` and `current_state`: one sentence each.\n"
     "- `completed`, `in_progress`, `next_actions`, `decisions`, `blockers`: "
-    "listas de cadenas.\n"
-    "- `files_touched`: lista de OBJETOS, uno por fichero: "
-    '{{"path": "ruta/relativa", "reason": "por qué lo tocaste"}}.\n'
-    "- `engram_refs`: lista de CADENAS, las claves de Engram que cites.\n"
-    "- `validation`: objeto con dos listas de cadenas: `commands_run` y "
+    "lists of strings.\n"
+    "- `files_touched`: list of OBJECTS, one per file: "
+    '{{"path": "relative/path", "reason": "why you touched it"}}.\n'
+    "- `engram_refs`: list of STRINGS, the Engram keys you cite.\n"
+    "- `validation`: object with two lists of strings: `commands_run` and "
     "`results`.\n"
-    "- `git` lo mide agentorch y no se toca.\n"
-    "No inventes estado: si no lo has medido, dilo. No cambies las claves ni el sha."
+    "- `git` is measured by agentorch and must not be edited.\n"
+    "Do not invent state: if you have not measured it, say so. Do not change "
+    "the keys or the sha."
 )
 
 
@@ -89,10 +90,10 @@ def _head_problems(path: Path) -> list[str]:
     recorded = (load_handoff(path).get("git") or {}).get("head")
     head = repo_head()
     if head is None:
-        note("no se pudo leer el commit actual: no se verificó git.head")
+        note("could not read the current commit: git.head was not checked")
         return []
     if recorded and recorded != head:
-        return [f"el handoff declara {recorded} y el repositorio está en {head}"]
+        return [f"the handoff declares {recorded} and the repository is at {head}"]
     return []
 
 
@@ -109,7 +110,7 @@ def _wait_for_valid(path: Path, timeout: float, interval: float,
                 return True, []
             last = problems
         else:
-            last = [f"el agente no escribió {path}"]
+            last = [f"the agent did not write {path}"]
         if time.monotonic() >= deadline:
             return False, last
         time.sleep(interval)
@@ -119,23 +120,24 @@ def _prepare(key: str, entry: dict, config: dict, timeout: float,
              interval: float) -> tuple[Path | None, list[str]]:
     terminal = entry.get("terminal_id")
     if not terminal:
-        return None, ["el registro no tiene terminal; ejecuta 'agentorch init'"]
+        return None, ["the registry has no terminal; run 'agentorch init'"]
     executable = config["pi"]["executable"]
     if not agent_running(terminal, executable):
-        return None, ["no hay ningún agente vivo en ese terminal"]
+        return None, ["no agent is running in that terminal"]
     if runs_inside(terminal):
-        return None, ["esa terminal es la que está ejecutando este comando"]
+        return None, ["that terminal is the one running this command"]
 
     state = repo_state()
     if not state["head"]:
-        return None, ["el proyecto no tiene commits: no se puede afirmar un sha"]
+        return None, ["the project has no commits: no sha can be stated"]
 
     if not entry.get("session_id"):
-        note(f"{key}: el registro no tiene session_id; el handoff lo dejará "
-             "como 'desconocida' y no se podrá comprobar que lo escribió esta sesión.")
+        note(f"{key}: the registry has no session_id; the handoff will leave "
+             "it as 'unknown' and it will not be possible to check that this "
+             "session wrote it.")
     document = new_handoff(
         agent_id=key, role=entry.get("name") or key,
-        source_pi_session_id=entry.get("session_id") or "desconocida",
+        source_pi_session_id=entry.get("session_id") or "unknown",
         objective="", current_state="",
         git_branch=state["branch"], git_head=state["head"],
         git_status_summary=state["status_summary"])
@@ -145,18 +147,18 @@ def _prepare(key: str, entry: dict, config: dict, timeout: float,
 
     state = agent_state(terminal)
     if state == "working":
-        note(f"{key}: el agente está trabajando; el aviso queda encolado detrás "
-             f"de su turno actual, así que puede tardar más que {timeout:g}s.")
+        note(f"{key}: the agent is working; the notice queues behind its current "
+             f"turn, so it may take longer than {timeout:g}s.")
 
     if not send_text(terminal, RELEVO.format(path=path)):
-        return None, [f"herdr-core no aceptó el envío al terminal {terminal}"]
+        return None, [f"herdr-core did not accept the send to terminal {terminal}"]
 
     ok, problems = _wait_for_valid(path, timeout, interval, key)
     if ok:
         return path, _head_problems(path)
     if not json.loads(path.read_text(encoding="utf-8")).get("objective"):
-        return path, [f"el agente no llegó a escribirlo en {timeout:g}s"
-                      + (" (estaba trabajando)" if state == "working" else "")]
+        return path, [f"the agent did not get to write it in {timeout:g}s"
+                      + (" (it was working)" if state == "working" else "")]
     return path, problems
 
 
@@ -164,36 +166,36 @@ def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
           interval: float, path: Path | None) -> list[str]:
     terminal = entry.get("terminal_id")
     if not terminal:
-        return ["el registro no tiene terminal"]
+        return ["the registry has no terminal"]
     if runs_inside(terminal):
-        return ["esa terminal es la que está ejecutando este comando"]
+        return ["that terminal is the one running this command"]
     previous_tab = entry.get("tab_id")
     if not previous_tab:
-        return ["el registro no tiene tab"]
+        return ["the registry has no tab"]
     space = (registry.get("herdr") or {}).get("space_id")
     if not space:
-        return ["el registro no tiene space_id"]
+        return ["the registry has no space_id"]
 
     # Nunca cerrar a un agente a mitad de un turno: cerrar la tab interrumpiría
     # una herramienta en vuelo en vez de relevar la sesión.
     deadline = time.monotonic() + timeout
     while agent_state(terminal) == "working":
         if time.monotonic() >= deadline:
-            return ["el agente sigue trabajando; no se le cierra a la fuerza"]
+            return ["the agent is still working; it is not closed by force"]
         time.sleep(interval)
 
     item = next((tab for tab in config.get("tabs") or [] if tab.get("key") == key), None)
     if item is None:
-        return [f"{key} ya no está en agents.json"]
+        return [f"{key} is no longer in agents.json"]
     if config["pi"]["bootstrap"] == "none":
-        return ["el bootstrap está desactivado en agents.json"]
+        return ["bootstrap is disabled in agents.json"]
     # Un relevo arranca siempre en `recover`: el handoff recién validado es el
     # estado que la sesión nueva hereda, y con `greet` no llegaría a leerlo.
     write_bootstrap_files([item], "recover")
     session_id = str(uuid.uuid4())
     argv = pi_argv(config, item, session_id)
     if argv is None:
-        return ["el bootstrap está desactivado en agents.json"]
+        return ["bootstrap is disabled in agents.json"]
 
     # El relevo no teclea nada en un shell: cierra la tab y abre otra con
     # `--argv`. `hc send` envuelve el texto que escribe en `<hc from="…">…</hc>`,
@@ -202,7 +204,7 @@ def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
     try:
         run_app(["do", "tab.close", "--id", previous_tab, "--confirmed", "true"])
     except AgentorchError as exc:
-        return [f"no se pudo cerrar la tab {previous_tab}: {exc}"]
+        return [f"could not close tab {previous_tab}: {exc}"]
 
     name = entry.get("name") or key
     try:
@@ -212,7 +214,7 @@ def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
     except AgentorchError as exc:
         entry.update({"tab_id": None, "terminal_id": None, "pane_id": None,
                       "pid": None, "app": None, "session_id": None})
-        return [f"la tab se cerró y la nueva no se pudo crear: {exc}"]
+        return [f"the tab was closed and the new one could not be created: {exc}"]
 
     # Los ids definitivos solo se conocen releyendo el estado: `tab.new` devuelve
     # un id, pero es `ls` el que dice qué terminal y qué pane lleva dentro.
@@ -222,18 +224,18 @@ def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
     if fresh is None:
         entry.update({"tab_id": None, "terminal_id": None, "pane_id": None,
                       "pid": None, "app": None, "session_id": None})
-        return [f"la tab '{name}' no aparece tras el relevo"
-                + (f" (sin aplicación: {', '.join(pending)})" if pending else "")]
+        return [f"tab '{name}' does not appear after the swap"
+                + (f" (no application: {', '.join(pending)})" if pending else "")]
     ids = extract_tab_ids(fresh)
     entry.update({"tab_id": tab_id(fresh), "terminal_id": ids["terminal_id"],
                   "pane_id": ids["pane_id"]})
     new_terminal = ids["terminal_id"]
     if not new_terminal:
-        return [f"la tab '{name}' no declara terminal"]
+        return [f"tab '{name}' declares no terminal"]
 
     if not wait_for_agent(new_terminal, config["pi"]["executable"], timeout, interval):
         entry.update({"pid": None, "app": None, "session_id": None})
-        return [f"el agente no apareció en la tab nueva '{name}'"]
+        return [f"the agent did not appear in the new tab '{name}'"]
 
     entry.update({"pid": terminal_pid(new_terminal), "session_id": session_id,
                   "app": config["pi"]["executable"]})
@@ -275,13 +277,13 @@ def run(role: str | None = None, all_roles: bool = False, swap: bool = False,
     entries = (registry.get("herdr") or {}).get("tabs") or {}
 
     if all_roles and role is not None:
-        note("Usa un rol concreto o --all, no las dos cosas.")
+        note("Use one role or --all, not both.")
         return 1
     if not all_roles and role is None:
-        note(f"Dime qué rol. Disponibles: {', '.join(entries)}")
+        note(f"Tell me which role. Available: {', '.join(entries)}")
         return 1
     if role is not None and role not in entries:
-        note(f"No hay ningún rol {role!r} en el registro.")
+        note(f"There is no role {role!r} in the registry.")
         return 1
 
     targets = list(entries.items()) if all_roles else [(role, entries[role])]
@@ -292,28 +294,28 @@ def run(role: str | None = None, all_roles: bool = False, swap: bool = False,
         if not force and not swap:
             done = _prepared(key)
             if done is not None:
-                log(f"{key}: ya tenía un handoff válido ({done.name}); se salta")
+                log(f"{key}: it already had a valid handoff ({done.name}); skipped")
                 continue
         path, problems = _prepare(key, entry, config, timeout, interval)
         if problems:
-            note(f"{key}: handoff no válido — {'; '.join(problems)}")
+            note(f"{key}: invalid handoff — {'; '.join(problems)}")
             failed += 1
             if all_roles:
-                note("Se para aquí: los demás roles no se tocaron.")
+                note("Stopping here: the other roles were not touched.")
                 break
             continue
-        log(f"{key}: handoff escrito y validado ({path.name})")
+        log(f"{key}: handoff written and validated ({path.name})")
         if not swap:
             continue
         errors = _swap(key, entry, config, registry, timeout, interval, path)
         if errors:
-            note(f"{key}: handoff válido, pero el relevo falló — {'; '.join(errors)}")
+            note(f"{key}: valid handoff, but the swap failed — {'; '.join(errors)}")
             failed += 1
             if all_roles:
                 break
         else:
             save_registry(registry)
-            log(f"{key}: sesión reemplazada, pid={entry['pid']}")
+            log(f"{key}: session replaced, pid={entry['pid']}")
 
     if swap or failed:
         save_registry(registry)

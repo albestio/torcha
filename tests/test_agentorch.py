@@ -695,7 +695,7 @@ def test_init_refuses_to_run_outside_a_repository_without_a_terminal(
     monkeypatch.setattr(project.module.sys.stdin, "isatty", lambda: False)
 
     with pytest.raises(project.module.AgentorchError,
-                       match="no es un repositorio git"):
+                       match="is not a git repository"):
         project.module.init()
 
     # Nothing was created and Herdr was never called.
@@ -1018,7 +1018,7 @@ def test_status_reports_an_alive_role(project, capsys):
     assert project.module.status(as_json=True) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["roles"][0]["state"] == "vivo"
+    assert payload["roles"][0]["state"] == "alive"
     assert payload["summary"] == {"total": 1, "alive": 1, "diverged": False}
 
 
@@ -1031,7 +1031,7 @@ def test_status_reports_a_down_role_without_failing(project, capsys):
     assert project.module.status(as_json=True) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["roles"][0]["state"] == "caído"
+    assert payload["roles"][0]["state"] == "down"
     assert payload["summary"]["alive"] == 0
 
 
@@ -1044,8 +1044,8 @@ def test_status_reports_a_tab_that_no_longer_exists(project, capsys):
     assert project.module.status(as_json=True) == 1
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["roles"][0]["state"] == "perdido"
-    assert "la tab" in payload["roles"][0]["detail"]
+    assert payload["roles"][0]["state"] == "missing"
+    assert "the tab" in payload["roles"][0]["detail"]
     assert payload["summary"]["diverged"] is True
 
 
@@ -1058,8 +1058,8 @@ def test_status_reports_a_terminal_that_no_longer_exists(project, capsys):
     assert project.module.status(as_json=True) == 1
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["roles"][0]["state"] == "perdido"
-    assert "el terminal" in payload["roles"][0]["detail"]
+    assert payload["roles"][0]["state"] == "missing"
+    assert "the terminal" in payload["roles"][0]["detail"]
 
 
 def test_status_reports_a_replaced_session(project, capsys):
@@ -1071,7 +1071,7 @@ def test_status_reports_a_replaced_session(project, capsys):
     assert project.module.status(as_json=True) == 1
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["roles"][0]["state"] == "desplazado"
+    assert payload["roles"][0]["state"] == "moved"
     assert "500" in payload["roles"][0]["detail"]
 
 
@@ -1084,15 +1084,15 @@ def test_status_notes_a_renamed_tab_without_failing(project, capsys):
     assert project.module.status(as_json=True) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["roles"][0]["state"] == "vivo"
-    assert "renombrada" in payload["roles"][0]["detail"]
+    assert payload["roles"][0]["state"] == "alive"
+    assert "renamed" in payload["roles"][0]["detail"]
 
 
 def test_status_needs_a_registry(project):
     (project.root / ".agentorch" / "registry.json").unlink(missing_ok=True)
     seed_live(project, [])
 
-    with pytest.raises(project.module.AgentorchError, match="registro"):
+    with pytest.raises(project.module.AgentorchError, match="registry"):
         project.module.status()
 
 
@@ -1175,7 +1175,7 @@ def test_a_credential_is_refused(project):
     token = "ghp_" + "a" * 30
     problems = project.module.handoff.validate_handoff(
         valid_handoff(current_state=f"deployed with {token}"))
-    assert any("credencial" in problem for problem in problems)
+    assert any("credential" in problem for problem in problems)
 
 
 def test_a_project_mismatch_is_reported(project):
@@ -1212,7 +1212,7 @@ def test_check_head_says_when_it_cannot_verify(project, tmp_path, monkeypatch, c
     path.write_text(json.dumps(valid_handoff()))
 
     assert project.module.handoff_command.validate(str(path), check_head=True) == 0
-    assert "no se pudo leer el commit" in capsys.readouterr().err
+    assert "could not read the current commit" in capsys.readouterr().err
 
 
 def test_check_head_reports_a_moved_repository(project, tmp_path, monkeypatch):
@@ -1357,7 +1357,7 @@ def test_start_recreate_resumes_the_old_session(project, capsys):
     new_pid = created_tab(project, "Orquestador")["terminals"][0]["pid"]
     assert entry["pid"] == new_pid               # el pid de la tab creada
     assert entry["pid"] != 9000                  # ni el del arranque tecleado
-    assert "reanudada" in capsys.readouterr().out
+    assert "resumed" in capsys.readouterr().out
 
 
 def test_start_recreate_fresh_starts_a_new_session(project):
@@ -1379,8 +1379,8 @@ def test_start_recreate_fresh_reports_a_new_session(project, capsys):
     assert project.module.start(timeout=0.2, interval=0.01, recreate=True,
                                 fresh=True) == 0
     out = capsys.readouterr().out
-    assert "sesión nueva" in out
-    assert "reanudada" not in out
+    assert "new session" in out
+    assert "resumed" not in out
 
 
 def test_start_recreate_takes_the_ids_from_ls_not_from_the_echo(project):
@@ -1624,7 +1624,7 @@ def test_the_template_keeps_the_loader_invariants(project):
 
 
 def test_an_unknown_template_is_reported(project):
-    with pytest.raises(project.module.AgentorchError, match="No existe el template"):
+    with pytest.raises(project.module.AgentorchError, match="There is no template"):
         project.module.templates.load("nope")
 
 
@@ -1675,7 +1675,7 @@ def test_init_warns_when_launched_inside_a_team_tab(project, monkeypatch, capsys
 
     project.module.init_module.start_interview([])
 
-    assert "dos sesiones con la misma etiqueta" in capsys.readouterr().err
+    assert "with the same label" in capsys.readouterr().err
 
 
 def test_a_loose_tab_in_the_space_is_not_a_team_tab(project, monkeypatch, capsys):
@@ -1691,7 +1691,7 @@ def test_a_loose_tab_in_the_space_is_not_a_team_tab(project, monkeypatch, capsys
 
     project.module.init_module.start_interview([])
 
-    assert "dos sesiones con la misma etiqueta" not in capsys.readouterr().err
+    assert "with the same label" not in capsys.readouterr().err
     renames = project.options_for("tab.rename")
     assert renames and renames[0]["id"] == "tb-loose"
     assert renames[0]["name"] == "Agentorch"
@@ -1810,14 +1810,14 @@ def test_the_relevo_message_states_the_shape_of_structured_fields(project):
     """El agente no puede adivinar files_touched ni engram_refs: van vacíos."""
     text = project.module.handoff_command.RELEVO
     assert '"path"' in text and '"reason"' in text
-    assert "engram_refs" in text and "CADENAS" in text
-    assert "files_touched" in text and "OBJETOS" in text
+    assert "engram_refs" in text and "STRINGS" in text
+    assert "files_touched" in text and "OBJECTS" in text
 
 
 def test_the_relevo_message_pins_the_git_block(project):
     """`git` lo mide agentorch: reescribirlo fue cómo un handoff declaró un sha falso."""
     text = project.module.handoff_command.RELEVO
-    assert "`git` lo mide agentorch y no se toca" in text
+    assert "`git` is measured by agentorch and must not be edited" in text
 
 
 def test_handoff_run_writes_and_validates_a_handoff(project, monkeypatch):
@@ -1844,7 +1844,7 @@ def pinned_repository(project, monkeypatch, head=HEAD):
     """Fija lo que el repositorio mide, sin tocar git desde el test."""
     monkeypatch.setattr(project.module.handoff_command, "repo_state",
                         lambda: {"branch": "main", "head": HEAD,
-                                 "status_summary": "árbol limpio"})
+                                 "status_summary": "clean tree"})
     monkeypatch.setattr(project.module.handoff_command, "repo_head", lambda: head)
 
 
@@ -1859,7 +1859,7 @@ def test_a_handoff_whose_head_moved_is_refused(project, monkeypatch, capsys):
                                               interval=0.01, swap=True) == 1
 
     err = capsys.readouterr().err
-    assert f"el handoff declara {HEAD} y el repositorio está en {MOVED}" in err
+    assert f"the handoff declares {HEAD} and the repository is at {MOVED}" in err
     assert "tab.close" not in project.commands()          # no se releva nada
     assert project.registry()["herdr"]["tabs"]["orchestrator"]["pid"] == 500
     files = list((project.root / ".agentorch" / "handoffs" / "orchestrator").glob("*.json"))
@@ -1890,8 +1890,8 @@ def test_an_unconfirmed_head_is_reported_not_invented(project, monkeypatch, caps
                                               interval=0.01) == 0
 
     err = capsys.readouterr().err
-    assert "no se pudo leer el commit actual" in err
-    assert "declara" not in err
+    assert "could not read the current commit" in err
+    assert "declares" not in err
 
 
 def test_handoff_run_fails_when_the_agent_writes_nothing(project, monkeypatch):
@@ -1972,7 +1972,7 @@ def test_swap_never_closes_a_working_agent(project, monkeypatch, capsys):
 
     assert project.module.handoff_command.run(role="orchestrator", timeout=0.2,
                                               interval=0.01, swap=True) == 1
-    assert "sigue trabajando" in capsys.readouterr().err
+    assert "the agent is still working" in capsys.readouterr().err
     assert "hc_keys" not in project.read_state()
 
 
@@ -1987,7 +1987,7 @@ def test_a_role_with_a_valid_handoff_is_skipped(project, monkeypatch, capsys):
 
     assert project.module.handoff_command.run(role="orchestrator", timeout=0.2,
                                               interval=0.01) == 0
-    assert "se salta" in capsys.readouterr().out
+    assert "skipped" in capsys.readouterr().out
 
 
 def test_a_busy_agent_is_reported_as_busy_not_as_wrong(project, monkeypatch, capsys):
@@ -2001,8 +2001,8 @@ def test_a_busy_agent_is_reported_as_busy_not_as_wrong(project, monkeypatch, cap
     assert project.module.handoff_command.run(role="orchestrator", timeout=0.2,
                                               interval=0.01) == 1
     err = capsys.readouterr().err
-    assert "está trabajando" in err
-    assert "no llegó a escribirlo" in err
+    assert "is working" in err
+    assert "did not get to write it" in err
     assert "objective" not in err          # no se le acusa de escribirlo mal
 
 
@@ -2025,7 +2025,7 @@ def test_handoff_run_all_stops_at_the_first_failure(project, monkeypatch, capsys
     assert project.module.handoff_command.run(all_roles=True, timeout=0.2,
                                               interval=0.01) == 1
     err = capsys.readouterr().err
-    assert "Se para aquí" in err
+    assert "Stopping here" in err
 
 
 # --- naming the setup tab ---------------------------------------------------
@@ -2083,8 +2083,8 @@ def test_doctor_passes_with_everything_in_place(project, monkeypatch, capsys):
                         lambda name: "/usr/bin/" + name)
     assert project.module.doctor() == 0
     out = capsys.readouterr().out
-    assert "0 fallo(s)" in out
-    assert "1 aviso(s)" in out          # no hay registry todavía
+    assert "0 failure(s)" in out
+    assert "1 warning(s)" in out          # no hay registry todavía
 
 
 def test_doctor_fails_without_herdr_app(project, monkeypatch, capsys):
@@ -2332,8 +2332,8 @@ def test_discover_live_reports_tabs_and_their_roles(project, capsys):
 
     captured = capsys.readouterr()
     assert "Senior Orchestrator" in captured.err
-    assert "renombrada" in captured.err
-    assert "agente=pi" in captured.err
+    assert "renamed" in captured.err
+    assert "agent=pi" in captured.err
     assert "job_senior" in captured.err
     # The proposal comes from the live tabs, not from the files: the human's
     # names win, and the keys come from the matched roles.
@@ -2371,7 +2371,7 @@ def test_discover_live_without_a_space_for_the_project(project, capsys):
     write_agent(project.root / ".pi/agents/scout.md", "job-scout", "Indexes sources.")
 
     assert project.module.discover(live=True) == 0
-    assert "No hay ningún space de Herdr para este proyecto" in capsys.readouterr().err
+    assert "There is no Herdr space for this project" in capsys.readouterr().err
 
 
 def test_discover_live_points_at_a_space_whose_name_matches_another_folder(project, capsys):
@@ -2384,7 +2384,7 @@ def test_discover_live_points_at_a_space_whose_name_matches_another_folder(proje
     assert project.module.discover(live=True) == 0
 
     err = capsys.readouterr().err
-    assert "existe un space llamado 'proj'" in err
+    assert "there is a space named 'proj'" in err
     assert "/somewhere/else" in err
 
 
@@ -2502,7 +2502,7 @@ def test_the_configured_max_tabs_is_used_and_only_the_cut_tabs_are_named(project
     captured = capsys.readouterr()
     assert [tab["name"] for tab in json.loads(captured.out)["tabs"]] == \
         ["Orchestrator", "Scout", "Communicator"]
-    cut = next(line for line in captured.err.splitlines() if "deja fuera" in line)
+    cut = next(line for line in captured.err.splitlines() if "leaves out" in line)
     assert "Auditor" in cut and "Coach" in cut
     # La tab de setup queda excluida, no recortada: no se nombra.
     assert "Agentorch" not in cut

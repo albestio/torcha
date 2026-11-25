@@ -30,8 +30,8 @@ def live_payload(candidates) -> tuple[dict, list]:
                  if normalize(str(s.get("name") or "")) == wanted]
         return {"space": None, "space_id": None, "tabs": [],
                 "main_session": None,
-                "hint": (f"existe un space llamado {alike[0].get('name')!r} que "
-                         f"apunta a {alike[0].get('folder')}" if alike else None)}, []
+                "hint": (f"there is a space named {alike[0].get('name')!r} that "
+                         f"points to {alike[0].get('folder')}" if alike else None)}, []
 
     space = spaces[0]
     tabs = inspect_space(space, candidates)
@@ -57,7 +57,7 @@ def live_payload(candidates) -> tuple[dict, list]:
 
 def _report(payload: dict) -> None:
     if payload["space"] is None:
-        note("No hay ningún space de Herdr para este proyecto"
+        note("There is no Herdr space for this project"
              + (f"; {payload['hint']}." if payload.get("hint") else "."))
         return
     note(f"Space {payload['space_id']} · {len(payload['tabs'])} tab(s)")
@@ -66,16 +66,16 @@ def _report(payload: dict) -> None:
         if tab["is_main"]:
             marks.append("main")
         if tab["active"]:
-            marks.append("activa")
+            marks.append("active")
         if tab["renamed"]:
-            marks.append("renombrada")
+            marks.append("renamed")
         if tab["app"]:
-            marks.append(f"agente={tab['app']}")
+            marks.append(f"agent={tab['app']}")
         if tab["status"]:
             marks.append(tab["status"])
         note(f"  {tab['name']:<26} {', '.join(marks) or '—':<40} "
-             f"→ {tab['role'] or 'sin rol detectado'}")
-    note(f"Main session: {payload['main_session'] or 'no identificada'}")
+             f"→ {tab['role'] or 'no role detected'}")
+    note(f"Main session: {payload['main_session'] or 'not identified'}")
 
 
 def discover(live: bool = False, as_json: bool = False) -> int:
@@ -101,17 +101,17 @@ def discover(live: bool = False, as_json: bool = False) -> int:
         if live_tabs else []
     if proposal:
         if not as_json:
-            note(f"Propuesta a partir de las {len(proposal)} tabs abiertas en Herdr.")
+            note(f"Proposal from the {len(proposal)} tabs open in Herdr.")
     elif candidates:
         declared = [c for c in candidates if c.scope == "project"]
         if not as_json:
-            note(f"Candidatos encontrados: {len(candidates)}")
+            note(f"Candidates found: {len(candidates)}")
             if declared:
-                note(f"Propuesta a partir de los {len(declared)} agentes "
-                     f"declarados en el proyecto.")
+                note(f"Proposal from the {len(declared)} agents "
+                     f"declared in the project.")
             else:
-                note("El proyecto no declara agentes: la propuesta usa tu "
-                     "configuración de usuario.")
+                note("The project declares no agents: the proposal uses your "
+                     "user configuration.")
         proposal = choose(declared or candidates, max_tabs=configured_max_tabs())
 
     if proposal:
@@ -126,5 +126,5 @@ def discover(live: bool = False, as_json: bool = False) -> int:
         print(json.dumps(payload["proposed"], indent=2, ensure_ascii=False))
         return 0
 
-    note("No hay nada de lo que proponer un equipo todavía.")
+    note("There is nothing to propose a team from yet.")
     return 0

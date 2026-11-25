@@ -154,9 +154,9 @@ def _cut_by_limit(ordered: list[LiveTab], limit: int, taken: int) -> list[LiveTa
         return ordered
     dropped = [tab for tab in ordered[room:] if tab.has_agent]
     if dropped:
-        note(f"El límite de {limit} tabs deja fuera {len(dropped)} tab(s) con "
-             f"agente: {', '.join(tab.name for tab in dropped)}. Súbelo con "
-             f"'max_tabs' en {project.CONFIG_FILE}.")
+        note(f"The limit of {limit} tabs leaves out {len(dropped)} tab(s) with "
+             f"an agent: {', '.join(tab.name for tab in dropped)}. Raise it with "
+             f"'max_tabs' in {project.CONFIG_FILE}.")
     return ordered[:room]
 
 

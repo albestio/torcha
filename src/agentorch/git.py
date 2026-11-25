@@ -28,9 +28,9 @@ def repo_state() -> dict[str, str]:
                             cwd=project.PROJECT_DIR, text=True,
                             capture_output=True, check=False)
     dirty = [line for line in status.stdout.splitlines() if line.strip()]
-    summary = "árbol limpio" if not dirty else f"{len(dirty)} fichero(s) sin commitear"
+    summary = "clean tree" if not dirty else f"{len(dirty)} file(s) uncommitted"
     return {
-        "branch": branch.stdout.strip() or "desconocida",
+        "branch": branch.stdout.strip() or "unknown",
         "head": repo_head() or "",
         "status_summary": summary,
     }
@@ -47,19 +47,19 @@ def ensure_git_repo() -> None:
                                 cwd=project.PROJECT_DIR, text=True,
                                 capture_output=True, check=False)
     except FileNotFoundError:
-        raise AgentorchError("No se encuentra 'git' en PATH.")
+        raise AgentorchError("'git' is not on PATH.")
     if result.returncode == 0:
         return
     if not sys.stdin.isatty():
         raise AgentorchError(
-            f"{project.PROJECT_DIR} no es un repositorio git y la entrada no es interactiva.")
-    answer = input(f"{project.PROJECT_DIR} no es un repositorio git. ¿Ejecutar 'git init'? [Y/n] ")
+            f"{project.PROJECT_DIR} is not a git repository and the input is not interactive.")
+    answer = input(f"{project.PROJECT_DIR} is not a git repository. Run 'git init'? [Y/n] ")
     if answer.strip().lower() not in ("", "y", "yes", "s", "si", "sí"):
         raise AgentorchError(
-            "Cancelado: no se creó ningún space ni se arrancó ningún agente.")
+            "Cancelled: no space was created and no agent was started.")
     result = subprocess.run(["git", "init"], cwd=project.PROJECT_DIR, text=True,
                             capture_output=True, check=False)
     if result.returncode != 0:
         raise AgentorchError(
-            f"'git init' falló: {(result.stderr or result.stdout).strip()}")
-    log(f"Repositorio git inicializado en {project.PROJECT_DIR}")
+            f"'git init' failed: {(result.stderr or result.stdout).strip()}")
+    log(f"Git repository initialised in {project.PROJECT_DIR}")

@@ -16,13 +16,13 @@ from .output import log, note
 
 def run_app(args: list[str], *, allow_error: bool = False) -> str:
     command = ["herdr-app", *args]
-    note(f"Ejecutando: {' '.join(command)}")
+    note(f"Running: {' '.join(command)}")
     result = subprocess.run(command, cwd=project.PROJECT_DIR, text=True,
                             capture_output=True, check=False)
     if result.returncode and not allow_error:
         detail = (result.stderr or result.stdout).strip()
         raise AgentorchError(
-            f"herdr-app devolvió código {result.returncode}: "
+            f"herdr-app returned code {result.returncode}: "
             f"{' '.join(command)}" + (f"\n{detail}" if detail else "")
         )
     return result.stdout.strip()
@@ -171,8 +171,8 @@ def parse_json_output(output: str, operation: str) -> Any:
         except json.JSONDecodeError:
             continue
     raise AgentorchError(
-        f"No se pudo interpretar como JSON la salida de '{operation}'. "
-        f"Salida recibida:\n{output[:3000]}"
+        f"Could not parse the output of '{operation}' as JSON. "
+        f"Output received:\n{output[:3000]}"
     )
 
 def first_string(obj: dict[str, Any], *keys: str) -> str | None:
@@ -204,8 +204,8 @@ def get_spaces(ls_data: Any) -> list[dict[str, Any]]:
         return [x for x in ls_data if isinstance(x, dict)
                 and any(k in x for k in ("tabs", "folder", "path"))]
     raise AgentorchError(
-        "La salida de 'herdr-app ls' no contiene una lista reconocible de spaces. "
-        "Se ha guardado la salida en .agentorch/last-ls.json."
+        "The output of 'herdr-app ls' does not contain a recognisable list of spaces. "
+        "The output was saved to .agentorch/last-ls.json."
     )
 
 def space_id(space: dict[str, Any]) -> str | None:
@@ -312,11 +312,11 @@ def core_report() -> tuple[bool, str]:
     result = subprocess.run(["hc", "ls"], text=True, capture_output=True, check=False)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
-        return False, "no responde" + (f": {detail}" if detail else "")
+        return False, "does not answer" + (f": {detail}" if detail else "")
     index = _parse_terminal_index(result.stdout)
     if index is None:
-        return False, "respondió algo que no es una lista de terminales"
-    return True, f"{len(index)} terminal(es) vivos"
+        return False, "answered something that is not a list of terminals"
+    return True, f"{len(index)} live terminal(s)"
 
 
 def terminal_folders() -> dict[str, str]:
@@ -332,7 +332,7 @@ def terminal_folders() -> dict[str, str]:
     reason, and `hc server start` is the documented way back.
     """
     if which("hc") is None:
-        raise AgentorchError("No se encuentra 'hc' (herdr-core) en PATH.")
+        raise AgentorchError("'hc' (herdr-core) is not on PATH.")
 
     result = subprocess.run(["hc", "ls"], text=True, capture_output=True, check=False)
     if result.returncode == 0:
@@ -340,21 +340,21 @@ def terminal_folders() -> dict[str, str]:
         if index is not None:
             return index
 
-    note("herdr-core no responde; intentando arrancarlo…")
+    note("herdr-core does not answer; trying to start it…")
     start = subprocess.run(["hc", "server", "start"], text=True,
                            capture_output=True, check=False)
     if start.returncode != 0:
         detail = (start.stderr or start.stdout).strip()
-        raise AgentorchError("herdr-core no responde y no se pudo arrancar."
+        raise AgentorchError("herdr-core does not answer and could not be started."
                              + (f"\n{detail}" if detail else ""))
 
     result = subprocess.run(["hc", "ls"], text=True, capture_output=True, check=False)
     index = _parse_terminal_index(result.stdout) if result.returncode == 0 else None
     if index is None:
         detail = (result.stderr or result.stdout).strip()
-        raise AgentorchError("herdr-core arrancó pero no responde a 'hc ls'."
+        raise AgentorchError("herdr-core started but does not answer 'hc ls'."
                              + (f"\n{detail}" if detail else ""))
-    note(f"herdr-core arrancado: {len(index)} terminal(es) vivos.")
+    note(f"herdr-core started: {len(index)} live terminal(s).")
     return index
 
 
@@ -492,10 +492,10 @@ def wait_for_apps(space: str, names: list[str], timeout: float = 20.0,
         found = next((s for s in get_spaces(data) if space_id(s) == space), None)
         if found is None:
             raise AgentorchError(
-                f"No se pudo verificar el space {space} después de crear las tabs.")
+                f"Could not verify space {space} after creating the tabs.")
         tabs = {(tab_name(t) or "").casefold(): t for t in tabs_of(found)}
         pending = [n for n in names if not tab_app(tabs.get(n.casefold(), {}))]
         if not pending or time.monotonic() >= deadline:
             return found, pending
-        log(f"Esperando a que arranque Pi: {len(names) - len(pending)}/{len(names)}")
+        log(f"Waiting for Pi to start: {len(names) - len(pending)}/{len(names)}")
         time.sleep(interval)

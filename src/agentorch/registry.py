@@ -57,12 +57,12 @@ def load_registry() -> dict[str, Any]:
     """Read the registry, or fail with the reason it cannot be read."""
     if not project.REGISTRY_FILE.exists():
         raise AgentorchError(
-            f"No existe el registro: {project.REGISTRY_FILE}. Ejecuta 'agentorch init'.")
+            f"The registry does not exist: {project.REGISTRY_FILE}. Run 'agentorch init'.")
     try:
         data = json.loads(project.REGISTRY_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise AgentorchError(
-            f"No se pudo leer {project.REGISTRY_FILE}: {exc}") from exc
+            f"Could not read {project.REGISTRY_FILE}: {exc}") from exc
     if not isinstance(data, dict):
-        raise AgentorchError(f"El registro no es un objeto JSON: {project.REGISTRY_FILE}")
+        raise AgentorchError(f"The registry is not a JSON object: {project.REGISTRY_FILE}")
     return data

@@ -30,8 +30,8 @@ def _instructions(key: str, value: Any) -> str:
         lines = [str(part).strip() for part in value if str(part).strip()]
         return "\n".join(lines)
     raise AgentorchError(
-        f"'instructions' de {key!r} debe ser texto o una lista de textos, "
-        f"no {type(value).__name__}")
+        f"'instructions' for {key!r} must be text or a list of texts, "
+        f"not {type(value).__name__}")
 
 DEFAULT_TABS = [
     {"key": "orchestrator", "name": "Orchestrator",
@@ -61,14 +61,14 @@ def parse_bootstrap(value: Any) -> str:
     if isinstance(value, str) and value.strip().lower() in BOOTSTRAP_MODES:
         return value.strip().lower()
     raise AgentorchError(
-        f"'pi.bootstrap' debe ser uno de {BOOTSTRAP_MODES}, o true/false: {value!r}")
+        f"'pi.bootstrap' must be one of {BOOTSTRAP_MODES}, or true/false: {value!r}")
 
 def parse_max_tabs(value: Any) -> int:
     """Tope de tabs del equipo: un entero positivo, como se escribe 'max_tabs'."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise AgentorchError(
-            f"'max_tabs' debe ser un entero positivo "
-            f"(por defecto {MAX_TABS}): {value!r}")
+            f"'max_tabs' must be a positive integer "
+            f"({MAX_TABS} by default): {value!r}")
     return value
 
 
@@ -85,7 +85,7 @@ def configured_max_tabs() -> int:
         raw = json.loads(project.CONFIG_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise AgentorchError(
-            f"No se pudo leer {project.CONFIG_FILE}: {exc}") from exc
+            f"Could not read {project.CONFIG_FILE}: {exc}") from exc
     if not isinstance(raw, dict) or "max_tabs" not in raw:
         return MAX_TABS
     return parse_max_tabs(raw["max_tabs"])
@@ -93,11 +93,11 @@ def configured_max_tabs() -> int:
 
 def load_config() -> dict[str, Any]:
     if not project.CONFIG_FILE.exists():
-        raise AgentorchError(f"No existe el archivo de configuración: {project.CONFIG_FILE}")
+        raise AgentorchError(f"The configuration file does not exist: {project.CONFIG_FILE}")
     try:
         raw = json.loads(project.CONFIG_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise AgentorchError(f"No se pudo leer {project.CONFIG_FILE}: {exc}") from exc
+        raise AgentorchError(f"Could not read {project.CONFIG_FILE}: {exc}") from exc
 
     executable, bootstrap = PI_DEFAULT, "greet"
     max_tabs = MAX_TABS
@@ -112,24 +112,24 @@ def load_config() -> dict[str, Any]:
             bootstrap = parse_bootstrap(pi_raw["bootstrap"])
     if any(char.isspace() for char in executable):
         raise AgentorchError(
-            f"'pi.executable' debe ser un único ejecutable, sin argumentos: {executable!r}")
+            f"'pi.executable' must be a single executable, with no arguments: {executable!r}")
 
     tabs = raw.get("tabs") if isinstance(raw, dict) else None
     if not isinstance(tabs, list) or not tabs:
-        raise AgentorchError("agents.json debe contener una lista no vacía en 'tabs'.")
+        raise AgentorchError("agents.json must contain a non-empty list in 'tabs'.")
 
     result: list[dict[str, str]] = []
     keys, names = set(), set()
     for item in tabs:
         if not isinstance(item, dict):
-            raise AgentorchError("Cada elemento de 'tabs' debe ser un objeto.")
+            raise AgentorchError("Every element of 'tabs' must be an object.")
         key, name = item.get("key"), item.get("name")
         if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", key):
-            raise AgentorchError(f"Clave de tab no válida: {key!r}")
+            raise AgentorchError(f"Invalid tab key: {key!r}")
         if not isinstance(name, str) or not name.strip():
-            raise AgentorchError(f"Nombre de tab no válido para {key!r}.")
+            raise AgentorchError(f"Invalid tab name for {key!r}.")
         if key in keys or name.casefold() in names:
-            raise AgentorchError(f"Clave o nombre de tab duplicado: {key!r} / {name!r}")
+            raise AgentorchError(f"Duplicate tab key or name: {key!r} / {name!r}")
         keys.add(key)
         names.add(name.casefold())
         role = item.get("role")
@@ -142,6 +142,6 @@ def load_config() -> dict[str, Any]:
         })
 
     if result[0]["key"] != "orchestrator":
-        raise AgentorchError("La primera tab debe tener key='orchestrator'.")
+        raise AgentorchError("The first tab must have key='orchestrator'.")
     return {"tabs": result, "max_tabs": max_tabs,
             "pi": {"executable": executable, "bootstrap": bootstrap}}
