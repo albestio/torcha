@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import zipfile
 import sys
 import time
 import uuid
@@ -4722,3 +4724,30 @@ def test_init_reports_a_named_tab_without_an_agent_even_with_the_config_written(
                 if "no agent running" in line]
     assert len(reported) == 1
     assert "Extra" in reported[0]
+
+
+# --- el paquete -------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_the_wheel_carries_the_files_a_launch_depends_on(tmp_path):
+    """Cada arranque pasa `--skill <paquete>/skills/...`: si no viaja, no arranca.
+
+    El modo editable lee el árbol de fuentes y esconde el fallo; esto construye
+    el paquete de verdad y mira dentro.
+    """
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is not installed: a wheel cannot be built here")
+
+    result = subprocess.run([uv, "build", "--wheel", "--out-dir", str(tmp_path), "."],
+                            cwd=str(REPO_ROOT), capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+    wheel = next(tmp_path.glob("*.whl"))
+    names = set(zipfile.ZipFile(wheel).namelist())
+    for expected in ("agentorch/skills/agentorch/SKILL.md",
+                     "agentorch/skills/setup/SKILL.md",
+                     "agentorch/templates/software-team.json"):
+        assert expected in names, f"{expected} is missing from the wheel"
