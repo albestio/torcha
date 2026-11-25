@@ -9,9 +9,9 @@ session per tab with a bootstrap prompt, and leaves the focus on the first tab.
 
 ## Status
 
-Early prototype: `init`, `discover`, `status`, `doctor`, `start`, `rename`,
-`handoff` and `templates` exist, but there is no memory integration yet. Do not
-expect stability.
+Early prototype: `init`, `discover`, `ls`, `status`, `doctor`, `start`,
+`rename`, `handoff` and `templates` exist, but there is no memory integration
+yet. Do not expect stability.
 
 ## Requirements
 
@@ -101,6 +101,19 @@ else's work. The role is reported as a failure.
 | `--recreate` | Recreate a tab that has disappeared, resuming its session. This is the default; the flag is still accepted so existing habits and aliases keep working. |
 | `--no-recreate` | Refuse instead: the role is reported as a failure, the registry is left untouched, and the run exits 1. |
 | `--fresh` | A new session instead of resuming the recorded one. |
+
+## Listing the team
+
+`agentorch ls` answers "does `agents.json` match what is on screen?": one line
+per declared role, in declaration order, with its key, name, terminal, state and
+session; then the live tabs that are not in the team; then a summary with the
+declared, adopted and alive counts. A declared role that was never adopted shows
+`not adopted`, which is the case neither `status` nor `discover` can see.
+`ls --json` gives the same data to scripts. It is read-only — it never creates,
+closes, moves or focuses a tab and never writes the registry — and it does not
+replace `agentorch status`, which stays the one that rules on divergence. When
+the registry or `herdr-app ls` cannot be read it prints what it can, shows `?`
+for the counts it cannot compute and exits non-zero.
 
 ## What it does not do
 

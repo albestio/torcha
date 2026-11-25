@@ -11,6 +11,7 @@ from .commands.doctor import doctor
 from .commands.handoff import run as run_handoff_command
 from .commands.handoff import validate as validate_handoff_command
 from .commands.init import init
+from .commands.ls import ls
 from .commands.rename import rename
 from .commands.start import start
 from .commands.status import status
@@ -31,6 +32,7 @@ def main() -> int:
         ("init", "Create or recover the space and its tabs."),
         ("discover", "List declared agents and propose an agents.json."),
         ("status", "Compare the registry with what Herdr reports now."),
+        ("ls", "List the declared team against the live workspace."),
         ("doctor", "Check the preconditions agentorch needs."),
         ("start", "Start the agents that are not running."),
         ("rename", "Rename a role's tab."),
@@ -51,7 +53,7 @@ def main() -> int:
         if name == "templates":
             child.add_argument("--json", action="store_true",
                                help="JSON output for scripts.")
-        if name == "status":
+        if name in ("status", "ls"):
             child.add_argument("--json", action="store_true",
                                help="JSON output for scripts.")
         if name == "doctor":
@@ -109,6 +111,8 @@ def main() -> int:
                                 as_json=getattr(args, "json", False))
     elif args.command == "status":
         call = lambda: status(as_json=getattr(args, "json", False))
+    elif args.command == "ls":
+        call = lambda: ls(as_json=getattr(args, "json", False))
     elif args.command == "doctor":
         call = lambda: doctor(as_json=getattr(args, "json", False))
     elif args.command == "templates":

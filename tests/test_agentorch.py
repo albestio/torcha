@@ -124,6 +124,9 @@ def main(argv):
     state["calls"].append(argv)
 
     if argv == ["ls"]:
+        if state.get("ls_fails"):
+            print(json.dumps({"error": "the app is not running"}))
+            return 1
         view = shown(state)
         save(state)
         print(json.dumps({"spaces": view}))
@@ -351,6 +354,7 @@ def load_modules():
     import agentorch.commands.doctor
     import agentorch.commands.handoff
     import agentorch.commands.init
+    import agentorch.commands.ls
     import agentorch.commands.rename
     import agentorch.commands.start
     import agentorch.commands.status
@@ -382,6 +386,7 @@ def load_modules():
         config=agentorch.config,
         herdr=agentorch.herdr,
         init_module=agentorch.commands.init,
+        ls=agentorch.commands.ls.ls,
         status=agentorch.commands.status.status,
         handoff=agentorch.handoff,
         handoff_command=agentorch.commands.handoff,
@@ -3009,3 +3014,224 @@ def test_a_failed_create_is_reported_and_the_registry_does_not_lie(project, monk
     entry = project.registry()["herdr"]["tabs"]["orchestrator"]
     assert entry["tab_id"] is None
     assert entry["terminal_id"] is None
+
+
+# --- ls: the declared team against reality ----------------------------------
+
+
+def ls_registry_tabs():
+    """Four of the five declared roles adopted, each in a different state."""
+    return {
+        "orchestrator": {"name": "Orquestador", "tab_id": "tb1",
+                         "terminal_id": "t1", "pane_id": "p1", "app": "pi",
+                         "pid": 500, "session_id": "01a1f453-0174-7369"},
+        "worker_1": {"name": "Worker 1", "tab_id": "tb2", "terminal_id": "t2",
+                     "pane_id": "p2", "app": None, "pid": None,
+                     "session_id": None},
+        "worker_2": {"name": "Worker 2", "tab_id": "tb-missing",
+                     "terminal_id": "t9", "pane_id": "p9", "app": "pi",
+                     "pid": 600, "session_id": "02b2b2b2-2222-4222"},
+        "worker_3": {"name": "Worker 3", "tab_id": "tb3", "terminal_id": "t3",
+                     "pane_id": "p3", "app": "pi", "pid": 500,
+                     "session_id": "03c3c3c3-3333-4333"},
+    }
+
+
+def ls_live_tabs():
+    return [live_tab("tb1", "Orquestador", "t1", pid=500),
+            live_tab("tb2", "Worker 1", "t2", app=None),
+            live_tab("tb3", "Worker 3", "t3", pid=777)]
+
+
+def ls_rows(stdout):
+    """The role lines, without the `[agentorch] ` prefix and keeping the padding."""
+    return [line[len("[agentorch] "):] for line in stdout.splitlines()
+            if line.startswith("[agentorch]   ")]
+
+
+def test_ls_prints_one_line_per_declared_role_in_declaration_order(project, capsys):
+    write_registry(project, tabs=ls_registry_tabs())
+    seed_live(project, ls_live_tabs())
+
+    assert project.module.ls() == 0
+
+    out = capsys.readouterr().out
+    assert "[agentorch] Space sp01 · proj" in out
+    assert ls_rows(out) == [
+        "  orchestrator  Orquestador  t1        alive        01a1f453  pid 500",
+        "  worker_1      Worker 1     t2        down         —         no agent (shell)",
+        "  worker_2      Worker 2     t9        missing      02b2b2b2  the tab no longer exists",
+        "  worker_3      Worker 3     t3        moved        03c3c3c3  the pid changed: 500 → 777",
+        "  worker_4      Worker 4     —         not adopted  —         no tab in the registry",
+    ]
+    assert "[agentorch] No live tab is outside the team." in out
+    assert "[agentorch] 5 declared · 4 adopted · 1 alive" in out
+
+
+def test_ls_names_the_live_tabs_that_are_not_in_the_team(project, capsys):
+    """The setup marker, a bare number and the caller's tab are never named."""
+    write_registry(project, tabs={"orchestrator": {
+        "name": "Orquestador", "tab_id": "tb1", "terminal_id": "t1",
+        "pane_id": "p1", "app": "pi", "pid": 500,
+        "session_id": "01a1f453-0174-7369"}})
+    folder = str(project.root)
+    own = {"id": "tb-own", "name": "Scratch", "active": False,
+           "terminals": [{"terminal": "t-own", "pane": "p-own", "cwd": folder,
+                          "app": None, "status": None, "pid": os.getpid()}]}
+    seed_live(project, [
+        live_tab("tb1", "Orquestador", "t1", pid=500),
+        live_tab("tb2", "Coach", "t2"),
+        live_tab("tb3", "Reviewer", "t3", app=None),
+        live_tab("tb4", "Agentorch", "t4"),
+        live_tab("tb5", "7", "t5", app=None),
+        own,
+    ])
+
+    assert project.module.ls() == 0
+
+    out = capsys.readouterr().out
+    assert "[agentorch] Tabs not in the team (2): Coach, Reviewer" in out
+    assert "Agentorch" not in out
+    assert "Scratch" not in out
+    assert ", 7" not in out
+
+
+def test_ls_json_carries_the_same_data(project, capsys):
+    write_registry(project, tabs=ls_registry_tabs())
+    seed_live(project, ls_live_tabs())
+
+    assert project.module.ls(as_json=True) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert [role["key"] for role in payload["roles"]] == [
+        "orchestrator", "worker_1", "worker_2", "worker_3", "worker_4"]
+    assert payload["roles"][0] == {
+        "key": "orchestrator", "name": "Orquestador", "terminal": "t1",
+        "state": "alive", "session": "01a1f453",
+        "session_id": "01a1f453-0174-7369", "detail": "pid 500"}
+    assert payload["roles"][-1]["state"] == "not adopted"
+    assert payload["roles"][-1]["terminal"] is None
+    assert payload["roles"][-1]["session"] is None
+    assert payload["space"] == {"id": "sp01", "name": "proj"}
+    assert payload["undeclared"] == []
+    assert payload["errors"] == []
+    assert payload["summary"] == {"declared": 5, "adopted": 4, "alive": 1}
+
+
+def test_ls_is_read_only(project, capsys):
+    """No tab is created, closed, moved or focused, and the registry is untouched."""
+    write_registry(project, tabs=ls_registry_tabs())
+    seed_live(project, ls_live_tabs() + [live_tab("tb9", "Coach", "t9")])
+    registry_file = project.root / ".agentorch" / "registry.json"
+    before = registry_file.read_text()
+
+    assert project.module.ls() == 0
+    capsys.readouterr()
+
+    assert project.commands() == []
+    assert registry_file.read_text() == before
+    assert project.read_state()["calls"] == [["ls"]]
+    assert "hc_sent" not in project.read_state()
+
+
+def test_ls_says_what_it_can_when_the_registry_is_unreadable(project, capsys):
+    (project.root / ".agentorch" / "registry.json").unlink(missing_ok=True)
+    seed_live(project, ls_live_tabs())
+
+    assert project.module.ls() == 1
+
+    captured = capsys.readouterr()
+    rows = ls_rows(captured.out)
+    assert len(rows) == 5
+    for row, key in zip(rows, ["orchestrator", "worker_1", "worker_2",
+                               "worker_3", "worker_4"]):
+        assert row.startswith(f"  {key}")
+        assert "unknown" in row
+        assert "the registry could not be read" in row
+    assert "[agentorch] 5 declared · ? adopted · ? alive" in captured.out
+    assert "The registry does not exist" in captured.err
+
+
+def test_ls_says_what_it_can_when_the_live_workspace_is_unreadable(project, capsys):
+    tabs = ls_registry_tabs()
+    tabs["worker_4"] = {"name": "Worker 4", "tab_id": "tb4", "terminal_id": "t4",
+                        "pane_id": "p4", "app": "pi", "pid": 700,
+                        "session_id": None}
+    write_registry(project, tabs=tabs)
+    project.state.write_text(json.dumps(
+        {"spaces": [], "calls": [], "ls_fails": True}))
+
+    assert project.module.ls() == 1
+
+    captured = capsys.readouterr()
+    rows = ls_rows(captured.out)
+    assert len(rows) == 5
+    assert all("unknown" in row for row in rows)
+    assert all("the live workspace could not be read" in row for row in rows)
+    assert "[agentorch] 5 declared · 5 adopted · ? alive" in captured.out
+    assert "herdr-app returned code 1" in captured.err
+
+
+def test_ls_is_registered_with_the_shared_project_option(project):
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    helped = subprocess.run([sys.executable, "-m", "agentorch", "ls", "--help"],
+                            cwd=project.root, env=env,
+                            capture_output=True, text=True)
+    text = " ".join(helped.stdout.split())   # el ancho de línea no importa
+    assert helped.returncode == 0
+    assert "--json" in text
+    assert "--project" in text
+    listed = subprocess.run([sys.executable, "-m", "agentorch", "--help"],
+                            cwd=project.root, env=env,
+                            capture_output=True, text=True)
+    assert listed.returncode == 0
+    assert ("List the declared team against the live workspace."
+            in " ".join(listed.stdout.split()))
+
+    write_registry(project, tabs=ls_registry_tabs())
+    seed_live(project, ls_live_tabs())
+    result = subprocess.run(
+        [sys.executable, "-m", "agentorch", "ls", "--json",
+         "--project", str(project.root)],
+        cwd=project.root, env=env, capture_output=True, text=True)
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["summary"] == {
+        "declared": 5, "adopted": 4, "alive": 1}
+
+
+def test_status_keeps_reading_only_the_registry(project, capsys):
+    """ls adds the declared team; status keeps comparing the registry alone."""
+    write_registry(project, tabs={"orchestrator": {
+        "name": "Orquestador", "tab_id": "tb1", "terminal_id": "t1",
+        "pane_id": "p1", "app": "pi", "pid": 500}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+
+    assert project.module.status(as_json=True) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert [role["role"] for role in payload["roles"]] == ["orchestrator"]
+    assert payload["summary"] == {"total": 1, "alive": 1, "diverged": False}
+
+
+def test_ls_reports_a_space_the_registry_remembers_but_herdr_lost(project, capsys):
+    """The space is missing, so the roles are: it says which space and exits 0.
+
+    Ruling on that divergence is `status`'s job; `ls` only has to avoid claiming
+    the project never had a space.
+    """
+    write_registry(project, space="sp-gone", tabs={"orchestrator": {
+        "name": "Orquestador", "tab_id": "tb1", "terminal_id": "t1",
+        "pane_id": "p1", "app": "pi", "pid": 500,
+        "session_id": "01a1f453-0174-7369"}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)],
+              space="sp-other")
+
+    assert project.module.ls() == 0
+
+    out = capsys.readouterr().out
+    assert "[agentorch] Space sp-gone is no longer in Herdr." in out
+    assert "the space no longer exists" in out
+    assert "[agentorch] 5 declared · 1 adopted · 0 alive" in out
