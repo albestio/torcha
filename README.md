@@ -10,8 +10,8 @@ session per tab with a bootstrap prompt, and leaves the focus on the first tab.
 ## Status
 
 Early prototype: `init`, `discover`, `ls`, `status`, `doctor`, `start`,
-`rename`, `handoff` and `templates` exist, but there is no memory integration
-yet. Do not expect stability.
+`recover`, `rename`, `handoff` and `templates` exist, but there is no memory
+integration yet. Do not expect stability.
 
 ## Requirements
 
@@ -102,6 +102,21 @@ else's work. The role is reported as a failure.
 | --- | --- |
 | `--recreate` | Recreate a tab that has disappeared, resuming its session. Without it, a missing tab is a failure and nothing is created. |
 | `--fresh` | A new session instead of resuming the recorded one. |
+
+## Catching a running agent up
+
+`agentorch recover <role>` sends one short catch-up message to that role's
+running agent: read your newest handoff, compare its `git.head` with
+`git rev-parse HEAD`, treat the working tree as the source of truth, look the
+role up in Engram, and answer with what is done, what is pending and what the
+repository contradicts.
+
+It does not replace the session. No tab is created, closed, moved or focused,
+the session id stays the same, the registry is not written and no handoff is
+opened or written; the answer arrives in the agent's own tab. It needs an agent
+already running in that terminal: a role with no agent is refused and needs
+`agentorch start <role>`, and the terminal running the command is refused like
+the swap's guard.
 
 ## Listing the team
 

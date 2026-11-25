@@ -355,6 +355,7 @@ def load_modules():
     import agentorch.commands.handoff
     import agentorch.commands.init
     import agentorch.commands.ls
+    import agentorch.commands.recover
     import agentorch.commands.rename
     import agentorch.commands.start
     import agentorch.commands.status
@@ -391,6 +392,8 @@ def load_modules():
         handoff=agentorch.handoff,
         handoff_command=agentorch.commands.handoff,
         start=agentorch.commands.start.start,
+        recover=agentorch.commands.recover.recover,
+        recover_module=agentorch.commands.recover,
         rename=agentorch.commands.rename.rename,
         templates=agentorch.templates,
         templates_command=agentorch.commands.templates.templates,
@@ -3159,3 +3162,128 @@ def test_ls_reports_a_space_the_registry_remembers_but_herdr_lost(project, capsy
     assert "[agentorch] Space sp-gone is no longer in Herdr." in out
     assert "the space no longer exists" in out
     assert "[agentorch] 5 declared · 1 adopted · 0 alive" in out
+
+
+# --- recover: catch up without replacing the session -------------------------
+
+
+def recover_registry(project):
+    """Two roles: one running, one whose terminal no longer holds an agent."""
+    write_registry(project, tabs={
+        "orchestrator": {"name": "Orquestador", "tab_id": "tb1", "terminal_id": "t1",
+                         "pane_id": "p1", "app": "pi", "pid": 500,
+                         "session_id": "11111111-1111-4111-8111-111111111111"},
+        "worker_1": {"name": "Worker 1", "tab_id": "tb2", "terminal_id": "t2",
+                     "pane_id": "p2", "app": None, "pid": None, "session_id": None},
+    })
+
+
+def registry_bytes(project):
+    return (project.root / ".agentorch" / "registry.json").read_bytes()
+
+
+def sent(project):
+    """What the fake herdr-core accepted as text for a terminal."""
+    return project.read_state().get("hc_sent", [])
+
+
+def test_recover_sends_a_catch_up_to_the_running_agent(project):
+    """The effect, not the shape: one message, nothing touched, no tab moved."""
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    before = registry_bytes(project)
+
+    assert project.module.recover("orchestrator") == 0
+
+    # Llega texto al agente vivo, y ese texto es el del catch-up de su rol.
+    assert [address for address, _ in sent(project)] == ["t1"]
+    text = sent(project)[0][1]
+    assert ".agentorch/handoffs/orchestrator/" in text
+    assert "git rev-parse HEAD" in text
+
+    # Nada más se toca: ni tab, ni sesión, ni registro, ni handoff.
+    assert project.commands() == []
+    assert registry_bytes(project) == before
+    assert not (project.root / ".agentorch" / "handoffs").exists()
+
+
+def test_recover_refuses_a_role_that_is_not_in_the_registry(project, capsys):
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    before = registry_bytes(project)
+
+    assert project.module.recover("ghost") == 1
+
+    assert "There is no role 'ghost' in the registry" in capsys.readouterr().err
+    assert sent(project) == []
+    assert registry_bytes(project) == before
+
+
+def test_recover_refuses_a_role_with_no_running_agent(project, capsys):
+    """No agent in that terminal: nothing is typed and `start` is the way forward."""
+    recover_registry(project)
+    seed_live(project, [live_tab("tb2", "Worker 1", "t2", app=None)])
+
+    assert project.module.recover("worker_1") == 1
+
+    err = capsys.readouterr().err
+    assert "no agent is running" in err
+    assert "agentorch start worker_1" in err
+    assert sent(project) == []
+    assert project.commands() == []
+
+
+def test_recover_refuses_the_terminal_running_the_command(project, monkeypatch,
+                                                         capsys):
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    monkeypatch.setattr(project.module.recover_module, "runs_inside",
+                        lambda terminal: True)
+
+    assert project.module.recover("orchestrator") == 1
+
+    assert ("that terminal is the one running this command"
+            in capsys.readouterr().err)
+    assert sent(project) == []
+
+
+def test_the_catch_up_message_is_its_own_text(project):
+    """Neither the launch bootstrap (confirm who you are) nor the relevo (write a handoff)."""
+    text = project.module.recover_module.CATCH_UP.format(key="orchestrator")
+
+    # Lo que un agente ya en marcha necesita leer.
+    assert ".agentorch/handoffs/orchestrator/" in text
+    assert "git rev-parse HEAD" in text
+    assert "the tree is the source of truth" in text
+    assert "mem_search" in text
+    assert "what is done" in text and "what is pending" in text
+    assert "contradicts" in text
+    assert "do not restart" in text
+
+    # Ni el arranque, ni el relevo.
+    assert text != project.module.bootstrap_text(TABS[0], "recover")
+    assert text != project.module.handoff_command.RELEVO.format(path="/x.json")
+    assert "READY" not in text
+    assert "Confirm your identity" not in text
+    assert "wait for instructions" not in text
+    assert "Fill in the handoff" not in text
+
+
+def test_recover_is_registered_with_its_help_line(project):
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    helped = subprocess.run([sys.executable, "-m", "agentorch", "recover", "--help"],
+                            cwd=project.root, env=env,
+                            capture_output=True, text=True)
+    text = " ".join(helped.stdout.split())   # el ancho de línea no importa
+    assert helped.returncode == 0
+    assert "role" in text
+    assert "--project" in text
+
+    listed = subprocess.run([sys.executable, "-m", "agentorch", "--help"],
+                            cwd=project.root, env=env,
+                            capture_output=True, text=True)
+    assert listed.returncode == 0
+    assert ("Ask a running agent to catch up without replacing its session."
+            in " ".join(listed.stdout.split()))

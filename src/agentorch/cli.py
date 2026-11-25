@@ -12,6 +12,7 @@ from .commands.handoff import run as run_handoff_command
 from .commands.handoff import validate as validate_handoff_command
 from .commands.init import init
 from .commands.ls import ls
+from .commands.recover import recover as recover_command
 from .commands.rename import rename
 from .commands.start import start
 from .commands.status import status
@@ -35,6 +36,7 @@ def main() -> int:
         ("ls", "List the declared team against the live workspace."),
         ("doctor", "Check the preconditions agentorch needs."),
         ("start", "Start the agents that are not running."),
+        ("recover", "Ask a running agent to catch up without replacing its session."),
         ("rename", "Rename a role's tab."),
         ("templates", "List the bundled teams."),
     ):
@@ -62,6 +64,9 @@ def main() -> int:
         if name == "rename":
             child.add_argument("role", help="Role in the registry.")
             child.add_argument("name", help="New name of the tab.")
+        if name == "recover":
+            child.add_argument("role", help="Role in the registry, running in its "
+                                            "own tab.")
         if name == "start":
             child.add_argument("role", nargs="?",
                                help="Start only this role.")
@@ -116,6 +121,8 @@ def main() -> int:
         call = lambda: start(role=getattr(args, "role", None),
                              fresh=getattr(args, "fresh", False),
                              recreate=getattr(args, "recreate", False))
+    elif args.command == "recover":
+        call = lambda: recover_command(args.role)
     elif args.command == "handoff" and getattr(args, "handoff_command", None) == "run":
         call = lambda: run_handoff_command(
             role=args.role, all_roles=getattr(args, "all", False),
