@@ -3,6 +3,33 @@
 Notable changes to torcha. The format follows Keep a Changelog and the project
 uses semantic versioning.
 
+## [0.5.0] - 2026-11-25
+
+### Renamed
+
+The project is `torcha`. The distribution, the import package, the console script,
+the runtime data directory (`.torcha/`) and the packaged skills carry the new
+name; every message and every prompt was swept with them.
+
+What an existing user has to do, in order:
+
+1. `torcha migrate` — copies `.agentorch/` to `.torcha/`, verifies the copy byte
+   by byte and leaves the original where it was. Any other command refuses an
+   unmigrated project and names this one.
+2. `torcha init` — rewrites the bootstrap files. They are rendered from the
+   configured mode and held the old name, so `start` will refuse them until this
+   runs. That refusal is deliberate: a stale prompt is worse than a stopped one.
+3. `uv tool uninstall agentorch` — two console scripts pointing at the same tree
+   is a way to be confused about which one ran.
+
+A tab the old version named `Agentorch` is still recognised as the setup tab, so
+it never becomes an adoptable role.
+
+### Added
+
+- `torcha migrate`, and one guard that stops every other command on a project
+  whose data is still in the old directory.
+
 ## [0.4.0] - 2026-11-25
 
 First release with a usable command surface, after adopting two real workspaces
