@@ -13,6 +13,7 @@ import tempfile
 from shutil import which
 
 from .. import project
+from ..bootstrap import bootstrap_disagreement
 from ..config import load_config
 from ..errors import AgentorchError
 from ..herdr import core_report
@@ -78,6 +79,35 @@ def _check_pi(executable: str) -> tuple[str, str]:
     return (OK, path) if path else (FAIL, f"'{executable}' is not on PATH")
 
 
+def _check_bootstrap() -> tuple[str, str]:
+    """Report the files `pi` reads that do not hold the configured mode.
+
+    It is a finding, never a failure: nothing here is broken enough to stop the
+    tool, and a disagreement is reconciled by `agentorch init`. Before the first
+    `init` there is no directory and no `pi` session has read anything, so a
+    project that never wrote prompts is not reported.
+    """
+    if not project.CONFIG_FILE.exists():
+        return OK, "no agents.json; there is nothing to compare"
+    try:
+        config = load_config()
+    except AgentorchError as exc:
+        return OK, f"the configuration could not be read: {exc}"
+    mode = config["pi"]["bootstrap"]
+    if mode == "none":
+        return OK, "bootstrap is none; no prompt is read"
+    if not project.BOOTSTRAP_DIR.is_dir():
+        return OK, "no bootstrap file has been written yet"
+    problems = []
+    for item in config.get("tabs") or []:
+        problem = bootstrap_disagreement(item["key"], item, mode)
+        if problem is not None:
+            problems.append(f"{item['key']}: {problem}")
+    if problems:
+        return WARN, "; ".join(problems)
+    return OK, f"{len(config.get('tabs') or [])} file(s) match bootstrap={mode}"
+
+
 def _check_registry() -> tuple[str, str]:
     if not project.REGISTRY_FILE.exists():
         return WARN, "there is no registry; run 'agentorch init'"
@@ -115,6 +145,7 @@ def doctor(as_json: bool = False) -> int:
         ("herdr-core", _check_core()),
         ("config", config_check),
         ("pi", _check_pi(executable)),
+        ("bootstrap", _check_bootstrap()),
         ("registry", _check_registry()),
         ("permissions", _check_writable()),
     ]

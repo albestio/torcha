@@ -1908,6 +1908,21 @@ def start_registry(project, session_id=SESSION, **extra):
     write_registry(project, tabs={"orchestrator": entry})
 
 
+def seed_bootstrap_file(project, key="orchestrator", mode=None):
+    """The prompt `pi` reads, rendered exactly as `init` writes it.
+
+    `start` refuses to launch on a file that does not hold the configured
+    mode's text, so every test that expects a launch has to have this file.
+    """
+    config = json.loads((project.root / ".agentorch/agents.json").read_text())
+    mode = mode or config["pi"]["bootstrap"]
+    item = next(tab for tab in config["tabs"] if tab["key"] == key)
+    path = project.module.paths.BOOTSTRAP_DIR / f"{key}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(project.module.bootstrap_text(item, mode))
+    return path
+
+
 def created_tab(project, name):
     """La tab que el fake acaba de crear, tal como la reporta `ls`."""
     for space in project.read_state()["spaces"]:
@@ -1919,6 +1934,7 @@ def created_tab(project, name):
 
 def test_start_resumes_the_registry_session(project):
     start_registry(project)
+    seed_bootstrap_file(project)
     seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None)])
 
     assert project.module.start(timeout=0.5, interval=0.01) == 0
@@ -1940,6 +1956,7 @@ def test_start_resumes_the_registry_session(project):
 
 def test_start_fresh_uses_a_new_session_id(project):
     start_registry(project)
+    seed_bootstrap_file(project)
     seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None)])
 
     assert project.module.start(fresh=True, timeout=0.5, interval=0.01) == 0
@@ -1951,6 +1968,7 @@ def test_start_fresh_uses_a_new_session_id(project):
 
 def test_start_skips_a_tab_that_already_runs_the_agent(project):
     start_registry(project)
+    seed_bootstrap_file(project)
     seed_live(project, [live_tab("tb1", "Orquestador", "t1", app="pi", pid=500)])
 
     assert project.module.start(timeout=0.5, interval=0.01) == 0
@@ -1991,6 +2009,7 @@ def test_start_reports_a_closed_tab_and_offers_recreate(project, capsys):
 def test_start_recreate_resumes_the_old_session(project, capsys):
     """Un cierre por error debe devolver la conversación, no empezar otra."""
     start_registry(project)
+    seed_bootstrap_file(project)
     project.state.write_text(json.dumps(
         {"spaces": [a_space_without_the_role(project)], "calls": []}))
 
@@ -2010,6 +2029,7 @@ def test_start_recreate_resumes_the_old_session(project, capsys):
 
 def test_start_recreate_fresh_starts_a_new_session(project):
     start_registry(project)
+    seed_bootstrap_file(project)
     project.state.write_text(json.dumps(
         {"spaces": [a_space_without_the_role(project)], "calls": []}))
 
@@ -2021,6 +2041,7 @@ def test_start_recreate_fresh_starts_a_new_session(project):
 
 def test_start_recreate_fresh_reports_a_new_session(project, capsys):
     start_registry(project)
+    seed_bootstrap_file(project)
     project.state.write_text(json.dumps(
         {"spaces": [a_space_without_the_role(project)], "calls": []}))
 
@@ -2034,6 +2055,7 @@ def test_start_recreate_fresh_reports_a_new_session(project, capsys):
 def test_start_recreate_takes_the_ids_from_ls_not_from_the_echo(project):
     """El id que devuelve `tab.new` no es la verdad; manda `herdr-app ls`."""
     start_registry(project)
+    seed_bootstrap_file(project)
     project.state.write_text(json.dumps(
         {"spaces": [a_space_without_the_role(project)], "calls": [],
          "tab_new_echo": {"tab": "tb-other", "terminal": "t09"}}))
@@ -2062,7 +2084,83 @@ def test_start_skips_a_role_with_the_bootstrap_disabled(project):
     assert project.options_for("tab.new") == []
 
 
+def test_start_refuses_a_stale_bootstrap_file_and_launches_nothing(project, capsys):
+    """S16: the file wins. Editing agents.json does not rewrite the prompt."""
+    start_registry(project)
+    # El prompt en disco se escribió para `recover`, pero la config dice `greet`.
+    path = seed_bootstrap_file(project, mode="recover")
+    before = path.read_text()
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None)])
+
+    assert project.module.start(timeout=0.5, interval=0.01) == 1
+
+    error = capsys.readouterr().err
+    assert ".agentorch/bootstrap/orchestrator.md" in error   # nombra el fichero
+    assert "recover" in error                                 # el modo que tiene
+    assert "greet" in error                                   # el que se configuró
+    assert "agentorch init" in error                          # cómo reconciliarlo
+    assert project.options_for("tab.close") == []             # no se cierra nada
+    assert project.options_for("tab.new") == []               # ni se lanza nada
+    entry = project.registry()["herdr"]["tabs"]["orchestrator"]
+    assert entry["tab_id"] == "tb1" and entry["terminal_id"] == "t1"
+    assert entry["session_id"] == SESSION
+    assert path.read_text() == before                         # no se sobrescribe
+
+
+def test_start_recreate_refuses_a_missing_bootstrap_file(project, capsys):
+    """S16: a role with no prompt on disk cannot be launched either."""
+    start_registry(project)
+    project.state.write_text(json.dumps(
+        {"spaces": [a_space_without_the_role(project)], "calls": []}))
+
+    assert project.module.start(timeout=0.2, interval=0.01, recreate=True) == 1
+
+    error = capsys.readouterr().err
+    assert ".agentorch/bootstrap/orchestrator.md" in error
+    assert "agentorch init" in error
+    assert project.options_for("tab.new") == []
+    entry = project.registry()["herdr"]["tabs"]["orchestrator"]
+    assert entry["tab_id"] == "tb1" and entry["terminal_id"] == "t1"
+
+
+def test_start_refuses_a_role_that_is_no_longer_declared(project, capsys):
+    """S16: outside `agents.json` there is no rendered prompt to verify."""
+    write_registry(project, tabs={"ghost": {
+        "name": "Ghost", "tab_id": "tb1", "terminal_id": "t1",
+        "pane_id": "p1", "app": None, "pid": None, "session_id": SESSION}})
+    seed_bootstrap_file(project, "orchestrator")
+    seed_live(project, [live_tab("tb1", "Ghost", "t1", app=None)])
+
+    assert project.module.start(timeout=0.5, interval=0.01) == 1
+
+    error = capsys.readouterr().err
+    assert "no longer in agents.json" in error
+    assert "agentorch init" in error
+    assert project.options_for("tab.close") == []
+    assert project.options_for("tab.new") == []
+
+
+def test_start_does_not_compare_bootstrap_files_when_the_mode_is_none(project, capsys):
+    """S16: with `none` pi is never launched, so no file is read."""
+    (project.root / ".agentorch" / "agents.json").write_text(
+        json.dumps({"pi": {"executable": "pi", "bootstrap": "none"},
+                    "tabs": TABS}))
+    start_registry(project)
+    # Un fichero que quedó de un modo anterior no puede impedir nada: no se lee.
+    seed_bootstrap_file(project, "orchestrator", mode="recover")
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None)])
+
+    assert project.module.start(timeout=0.5, interval=0.01) == 0
+
+    error = capsys.readouterr().err
+    assert "bootstrap is disabled in agents.json" in error
+    assert "does not exist" not in error
+    assert project.options_for("tab.close") == []
+    assert project.options_for("tab.new") == []
+
+
 def test_start_only_touches_the_named_role(project):
+    seed_bootstrap_file(project, "worker_1")
     write_registry(project, tabs={
         "orchestrator": {"name": "Orquestador", "tab_id": "tb1",
                          "terminal_id": "t1", "pane_id": "p1", "app": None,
@@ -3146,6 +3244,36 @@ def test_doctor_warns_when_the_registry_is_partial(project, monkeypatch, capsys)
     assert "registry" in payload["summary"]["warnings"]
 
 
+def test_doctor_warns_when_a_bootstrap_file_holds_another_mode(project, monkeypatch, capsys):
+    """S16: the same disagreement, as a report that does not fail a healthy project."""
+    monkeypatch.setattr(project.module.doctor_module, "which",
+                        lambda name: "/usr/bin/" + name)
+    seed_bootstrap_file(project, mode="recover")   # la config dice `greet`
+
+    assert project.module.doctor(as_json=True) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert "bootstrap" not in payload["summary"]["failures"]
+    assert "bootstrap" in payload["summary"]["warnings"]
+    check = next(item for item in payload["checks"] if item["name"] == "bootstrap")
+    assert "orchestrator" in check["detail"]
+    assert ".agentorch/bootstrap/orchestrator.md" in check["detail"]
+
+
+def test_doctor_is_quiet_about_bootstrap_files_that_match(project, monkeypatch, capsys):
+    """S16: a file holding exactly the configured mode is not a finding."""
+    monkeypatch.setattr(project.module.doctor_module, "which",
+                        lambda name: "/usr/bin/" + name)
+    for tab in TABS:
+        seed_bootstrap_file(project, tab["key"])
+
+    assert project.module.doctor(as_json=True) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    check = next(item for item in payload["checks"] if item["name"] == "bootstrap")
+    assert check["state"] == "ok"
+
+
 # --- which space belongs to the project -------------------------------------
 
 
@@ -3730,6 +3858,7 @@ def test_default_team_and_orchestrator_are_named_in_english(project):
 def test_two_tabs_with_the_same_name_do_not_steal_the_registry(project):
     """Con dos tabs homónimas, el relevo adopta la que creó, no la ajena."""
     start_registry(project)
+    seed_bootstrap_file(project)
     seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None),
                         live_tab("tb99", "Orquestador", "t99", app=None)])
 
@@ -3747,6 +3876,7 @@ def test_two_tabs_with_the_same_name_do_not_steal_the_registry(project):
 def test_a_failed_create_is_reported_and_the_registry_does_not_lie(project, monkeypatch):
     """Si `tab.new` falla después de cerrar, el registro no apunta a la tab cerrada."""
     start_registry(project)
+    seed_bootstrap_file(project)
     seed_live(project, [live_tab("tb1", "Orquestador", "t1", app=None)])
     module = sys.modules[project.module.start.__module__]
     real = module.run_app

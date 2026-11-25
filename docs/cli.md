@@ -177,8 +177,8 @@ usage: agentorch ls [-h] [--project PATH] [--json]
 ## `agentorch doctor`
 
 Check the preconditions agentorch needs — interpreter, `git`, repository,
-`herdr-app`, `hc`, configuration, `pi`, registry, writability — and report. It
-changes nothing.
+`herdr-app`, `hc`, configuration, `pi`, the bootstrap files, registry,
+writability — and report. It changes nothing.
 
 ```text
 usage: agentorch doctor [-h] [--project PATH] [--json]
@@ -191,11 +191,18 @@ usage: agentorch doctor [-h] [--project PATH] [--json]
 | `--project` | `--project PATH`, the project directory to act on; the current one by default. Shared by every command (see above). |
 | `--json` | Print `checks` (each with `name`, `state`, `detail`) and a `summary` with the failing and warning check names. |
 
+The `bootstrap` check compares each role's `.agentorch/bootstrap/<key>.md` with
+what `pi.bootstrap` renders and names the role and the file when they disagree —
+the same disagreement that makes `agentorch start` refuse the launch. It is a
+`warn`, never a `fail`: the report does not change the exit code of a project
+that is otherwise healthy, and `agentorch init` is what reconciles the files. A
+project where no bootstrap file has been written yet is not reported.
+
 ### Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | No check is `fail`. A `warn` check — no `agents.json`, no registry — keeps the exit code at 0. |
+| 0 | No check is `fail`. A `warn` check — no `agents.json`, no registry, a bootstrap file that does not hold the configured mode — keeps the exit code at 0. |
 | 1 | At least one check is `fail`. |
 | 2 | Usage error. |
 
@@ -218,12 +225,18 @@ usage: agentorch start [-h] [--project PATH] [--fresh] [--recreate] [role]
 | `--fresh` | A new session instead of resuming the recorded one. It decides between the two on both paths that create a tab: replacing the tab of a role whose agent died, and `--recreate`. |
 | `--recreate` | Recreate the tabs that have been closed. Without it a missing tab is reported as a failure naming the flag, and nothing is created. The parser accepts it together with `--fresh`; the pair means "recreate the tab and start a new session". |
 
+Both paths that launch compare the prompt on disk with what `pi.bootstrap`
+renders: a role whose file holds another mode's text, or has no file at all, is
+refused — naming the file and the mode it was written with — and nothing is
+closed, created or written. `agentorch init` reconciles the file; with
+`pi.bootstrap: "none"` no session is launched, so nothing is compared.
+
 ### Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | No role reported a problem. A role already running is counted as skipped, and skipping is not a failure. |
-| 1 | At least one role failed: a tab or terminal missing without `--recreate`, a terminal that is not a shell, a tab that could not be created, an agent that did not appear in time, a role that is not in the registry, a space the registry names but Herdr no longer has, or a live workspace that could not be read at all. |
+| 1 | At least one role failed: a tab or terminal missing without `--recreate`, a terminal that is not a shell, a bootstrap file that does not hold the configured mode, a tab that could not be created, an agent that did not appear in time, a role that is not in the registry, a space the registry names but Herdr no longer has, or a live workspace that could not be read at all. |
 | 2 | Usage error. |
 
 ## `agentorch recover`

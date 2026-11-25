@@ -81,6 +81,18 @@ command runs in never count as roles.
 | `greet` | Identity, role, project root; "wait for instructions" | 0 calls |
 | `recover` | Engram lookup, handoff, repository inspection, `READY` | several calls |
 
+The mode is not consulted at launch: `init` renders it into
+`.agentorch/bootstrap/<key>.md`, and that file is what `pi` reads as its first
+message. The file is therefore authoritative. Editing `agents.json` from `greet`
+to `recover` changes nothing until `agentorch init` renders the file again, so
+`agentorch start` refuses to launch a role whose file does not hold exactly what
+the configured mode renders — or is missing — naming the file and the mode it was
+written with, then leaving the tab, the registry and the file untouched.
+`agentorch doctor` reports the same disagreement as a finding without failing a
+healthy project, and `agentorch init` is the way to reconcile it. The swap is the
+one exception, with a reason: it renders `recover` for the role it is about to
+relaunch, so its file always matches.
+
 The first tab must use `key: "orchestrator"`; it is the one that receives focus.
 
 ## The team skill, loaded everywhere

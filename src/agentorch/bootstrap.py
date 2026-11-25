@@ -70,6 +70,49 @@ def bootstrap_text(item: dict[str, str], mode: str) -> str:
         ]
     return "\n".join(lines)
 
+# The two modes that render a prompt: `none` launches no session, so it never
+# writes a file and there is nothing to compare.
+RENDERED_MODES = ("greet", "recover")
+
+
+def _shown_path(path: Path) -> str:
+    try:
+        return path.relative_to(project.PROJECT_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def bootstrap_disagreement(key: str, item: dict[str, str],
+                           mode: str) -> str | None:
+    """Why `pi` would read a prompt other than the configured one, or None.
+
+    The mode is not consulted at launch: it is rendered into this file, and the
+    file is what `pi` reads as its first message. Editing `agents.json` from
+    `greet` to `recover` therefore changes nothing until something renders the
+    file again, so a launch whose file disagrees refuses instead of running the
+    old prompt in silence. `agentorch init` is the command that renders them.
+
+    Writes nothing: the file is authoritative, and reconciling it is explicit.
+    """
+    path = bootstrap_path(key)
+    shown = _shown_path(path)
+    if not path.is_file():
+        return f"the bootstrap file {shown} does not exist"
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"the bootstrap file {shown} cannot be read: {exc}"
+    if content == bootstrap_text(item, mode):
+        return None
+    written = next((other for other in RENDERED_MODES
+                    if content == bootstrap_text(item, other)), None)
+    if written is None:
+        return (f"the bootstrap file {shown} holds neither the 'greet' nor the "
+                f"'recover' prompt, but agents.json configures the {mode!r} mode")
+    return (f"the bootstrap file {shown} holds the {written!r} prompt, "
+            f"but agents.json configures the {mode!r} mode")
+
+
 def write_bootstrap_files(tabs: list[dict[str, str]], mode: str) -> list[Path]:
     project.BOOTSTRAP_DIR.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []

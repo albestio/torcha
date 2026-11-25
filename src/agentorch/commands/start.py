@@ -12,7 +12,7 @@ import json
 import uuid
 
 from .. import project
-from ..bootstrap import pi_argv
+from ..bootstrap import bootstrap_disagreement, pi_argv
 from ..config import load_config
 from ..errors import AgentorchError
 from ..herdr import (agent_running, extract_tab_ids, first_string, get_spaces,
@@ -90,6 +90,24 @@ def _create_tab(key: str, entry: dict, config: dict, space: str,
             "session_id": session_id}
 
 
+def _stale_bootstrap(key: str, config: dict) -> str | None:
+    """Why the prompt on disk cannot be launched for `key`, or None.
+
+    The mode lives in `agents.json`, but `pi` reads the rendered file. When the
+    two disagree, the file wins and the launch refuses: `agentorch init` is the
+    explicit way to reconcile them, and it is the only thing that rewrites it.
+    With `bootstrap: "none"` no session is launched, so no file is read.
+    """
+    mode = config["pi"]["bootstrap"]
+    if mode == "none":
+        return None
+    item = next((tab for tab in config.get("tabs") or []
+                 if tab.get("key") == key), None)
+    if item is None:
+        return "the role is no longer in agents.json"
+    return bootstrap_disagreement(key, item, mode)
+
+
 def _recreate(key: str, entry: dict, config: dict, space: str,
               fresh: bool = False, known_ids: set[str] | None = None) -> dict | None:
     """Rebuild a tab that was closed, resuming its session unless `fresh`.
@@ -144,6 +162,12 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
                      "(use --recreate to bring it back).")
                 failed += 1
                 continue
+            stale = _stale_bootstrap(key, config)
+            if stale is not None:
+                note(f"{key}: {stale}; run 'agentorch init' to reconcile it. "
+                     "Nothing was launched.")
+                failed += 1
+                continue
             previous_session = entry.get("session_id")
             rebuilt = _recreate(key, entry, config, wanted, fresh, known_ids)
             if rebuilt is None:
@@ -184,6 +208,13 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
         if argv is None:
             note(f"{key}: bootstrap is disabled in agents.json.")
             skipped += 1
+            continue
+        stale = _stale_bootstrap(key, config)
+        if stale is not None:
+            # Antes de cerrar la tab: una tab cerrada no se recupera sola.
+            note(f"{key}: {stale}; run 'agentorch init' to reconcile it. "
+                 "Nothing was launched.")
+            failed += 1
             continue
         previous_tab = entry.get("tab_id")
         if not previous_tab:
