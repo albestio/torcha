@@ -78,6 +78,20 @@ command runs in never count as roles.
 
 The first tab must use `key: "orchestrator"`; it is the one that receives focus.
 
+## The team skill, loaded everywhere
+
+Every agent `agentorch` launches receives the packaged team skill as well, with
+`--skill <package>/skills/agentorch/SKILL.md`, whatever `pi.bootstrap` says. It
+teaches the agent what no command can do for it: how to catch up on its own from
+its newest handoff, `git rev-parse HEAD` and Engram, and how to hand over — fill
+the document agentorch created, validate it with `agentorch handoff validate`,
+then ask the human or the orchestrator to run the swap, because neither the swap
+nor `agentorch recover` can target the tab running the command. The path comes
+from the package, so the target project needs nothing. This costs tokens in
+every session, by design: a skill an agent must discover on demand is one it can
+skip. With `pi.bootstrap: "none"` no session is launched, so no skill is loaded
+either.
+
 ## Starting the agents
 
 `agentorch start` brings up the agents of the registered roles that are not

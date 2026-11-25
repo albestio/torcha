@@ -380,6 +380,7 @@ def load_modules():
         load_config=agentorch.config.load_config,
         parse_bootstrap=agentorch.config.parse_bootstrap,
         bootstrap_text=agentorch.bootstrap.bootstrap_text,
+        pi_argv=agentorch.bootstrap.pi_argv,
         extract_tab_ids=agentorch.herdr.extract_tab_ids,
         tab_app=agentorch.herdr.tab_app,
         get_spaces=agentorch.herdr.get_spaces,
@@ -586,9 +587,11 @@ def test_init_starts_pi_with_its_bootstrap_file_in_every_created_tab(project):
     for options in project.options_for("space.new") + project.options_for("tab.new"):
         argv = json.loads(options["argv"])
         assert argv[0] == "pi"
-        assert argv[1] == "--session-id"
-        uuid.UUID(argv[2])
-        reference = argv[3]
+        assert argv[1] == "--skill"
+        assert Path(argv[2]).is_file()          # the packaged team skill ships
+        assert argv[3] == "--session-id"
+        uuid.UUID(argv[4])
+        reference = argv[5]
         assert reference.startswith("@.agentorch/bootstrap/")
         assert (project.root / reference.lstrip("@")).is_file()
 
@@ -741,6 +744,47 @@ def test_bootstrap_none_launches_pi_without_a_prompt(project):
     assert project.module.init() == 0
     for options in project.options_for("space.new") + project.options_for("tab.new"):
         assert "argv" not in options
+
+
+def test_every_launched_agent_loads_the_packaged_team_skill(project):
+    """La skill del equipo viaja en el argv: no se descubre, se carga siempre."""
+    agent = "22222222-2222-4222-8222-222222222222"
+    argv = project.module.pi_argv(
+        {"pi": {"executable": "pi", "bootstrap": "greet"}}, TABS[0],
+        session_id=agent)
+
+    assert argv[0] == "pi"
+    assert argv[1] == "--skill"
+    skill = Path(argv[2])
+    assert skill.is_absolute()
+    assert skill.is_file()                       # viaja con el paquete
+    assert skill.parent.name == "agentorch" and skill.name == "SKILL.md"
+    assert argv[argv.index("--session-id") + 1] == agent
+    assert "@.agentorch/bootstrap/orchestrator.md" in argv
+
+
+def test_bootstrap_none_builds_no_argv_at_all(project):
+    argv = project.module.pi_argv(
+        {"pi": {"executable": "pi", "bootstrap": "none"}}, TABS[0],
+        session_id="22222222-2222-4222-8222-222222222222")
+    assert argv is None
+
+
+def test_the_setup_interview_does_not_load_the_team_skill(project, monkeypatch):
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+
+        class Result:
+            returncode = 0
+        return Result()
+
+    monkeypatch.setattr(project.module.init_module.subprocess, "run", fake_run)
+    project.module.init_module._run_interview(Path("/tmp/x.md"), "pi")
+
+    setup = str(project.module.init_module.SETUP_SKILL)
+    assert captured["command"] == ["pi", "--skill", setup, "@/tmp/x.md"]
 
 
 # --- the git precondition --------------------------------------------------
@@ -1007,7 +1051,8 @@ def test_created_tabs_record_their_session_id_and_adopted_ones_do_not(project):
     worker = tabs["worker_1"]["session_id"]
     uuid.UUID(worker)                                      # es un uuid
     argv = json.loads(project.options_for("tab.new")[0]["argv"])
-    assert argv[2] == worker                               # el mismo que se lanzó
+    # el mismo que se lanzó
+    assert argv[argv.index("--session-id") + 1] == worker
 
 
 def test_init_records_the_pid_of_each_terminal(project):
@@ -1884,6 +1929,7 @@ def test_start_resumes_the_registry_session(project):
     assert created[0]["space"] == "sp01"
     assert created[0]["folder"] == str(project.root)
     assert created[0]["focus"] == "false"
+    assert "--skill" in created[0]["argv"]      # la skill del equipo, siempre
     assert "--session-id" in created[0]["argv"]
     assert SESSION in created[0]["argv"]
     entry = project.registry()["herdr"]["tabs"]["orchestrator"]

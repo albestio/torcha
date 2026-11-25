@@ -8,6 +8,11 @@ from typing import Any
 
 from . import project
 
+# The team skill travels with the package, like the setup skill `init` loads:
+# nothing has to exist in the target project for an agent to read it.
+TEAM_SKILL = Path(__file__).resolve().parent / "skills" / "agentorch" / "SKILL.md"
+
+
 def bootstrap_path(key: str) -> Path:
     return project.BOOTSTRAP_DIR / f"{key}.md"
 
@@ -78,20 +83,26 @@ def write_bootstrap_files(tabs: list[dict[str, str]], mode: str) -> list[Path]:
 
 def pi_argv(config: dict[str, Any], item: dict[str, str],
             session_id: str | None = None) -> list[str] | None:
-    """argv que arranca Pi con el prompt de arranque como primer mensaje.
+    """The argv that starts Pi with the bootstrap prompt as its first message.
 
-    El prompt viaja como referencia @archivo: no hay carrera con el arranque de
-    Pi ni escapado de comillas, saltos de línea o backticks. El `--session-id`
-    lo asigna agentorch, para que el id de sesión se conozca desde el arranque y
-    el handoff pueda comprobar que lo escribió esta sesión y no otra anterior.
+    The prompt travels as an `@file` reference: there is no race with Pi's
+    startup and no quoting of quotes, newlines or backticks. agentorch assigns
+    the `--session-id`, so the id is known from the start and the handoff can
+    check that this session wrote it and not an earlier one.
 
-    No renderiza el prompt: quien necesite un modo distinto al configurado
-    escribe el archivo antes con `write_bootstrap_files(tabs, modo)`.
+    Every launch also gets the packaged team skill with an absolute `--skill`
+    path: catching up and handing over cannot be commands, because `recover`
+    and `handoff run --swap` both refuse the terminal running them, so the
+    procedure has to be in the agent's own context from the first turn. The
+    token cost in every session is accepted on purpose.
+
+    Does not render the prompt: whoever needs a mode other than the configured
+    one writes the file first with `write_bootstrap_files(tabs, mode)`.
     """
     if config["pi"]["bootstrap"] == "none":
         return None
     relative = bootstrap_path(item["key"]).relative_to(project.PROJECT_DIR).as_posix()
-    argv = [config["pi"]["executable"]]
+    argv = [config["pi"]["executable"], "--skill", str(TEAM_SKILL)]
     if session_id:
         argv += ["--session-id", session_id]
     return argv + [f"@{relative}"]
