@@ -36,6 +36,59 @@ def repo_state() -> dict[str, str]:
     }
 
 
+def commits_between(base: str, head: str = "HEAD") -> int | None:
+    """How many commits separate `base` from `head`, or None when git cannot say."""
+    try:
+        result = subprocess.run(["git", "rev-list", "--count", f"{base}..{head}"],
+                                cwd=project.PROJECT_DIR, text=True,
+                                capture_output=True, check=False)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def is_ancestor(older: str, newer: str = "HEAD") -> bool | None:
+    """Whether `older` is an ancestor of `newer`; None when git cannot answer.
+
+    A sha that is no longer on the branch (a rebase, a rewritten branch) is a
+    real answer, not a failure: the caller says so instead of counting commits
+    it cannot count.
+    """
+    try:
+        result = subprocess.run(["git", "merge-base", "--is-ancestor", older, newer],
+                                cwd=project.PROJECT_DIR, text=True,
+                                capture_output=True, check=False)
+    except OSError:
+        return None
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    return None
+
+
+def working_tree() -> dict[str, object] | None:
+    """Whether the working tree has uncommitted changes, and how many files.
+
+    None means git could not be asked, which is not the same as a clean tree.
+    """
+    try:
+        result = subprocess.run(["git", "status", "--porcelain"],
+                                cwd=project.PROJECT_DIR, text=True,
+                                capture_output=True, check=False)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    dirty = [line for line in result.stdout.splitlines() if line.strip()]
+    return {"dirty": bool(dirty), "files": len(dirty)}
+
+
 def ensure_git_repo() -> None:
     """Precondición barata: no arrancar agentes en una carpeta sin repositorio.
 

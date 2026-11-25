@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1157,6 +1158,305 @@ def test_status_needs_a_registry(project):
 
     with pytest.raises(project.module.AgentorchError, match="registry"):
         project.module.status()
+
+
+# --- status: the detail that decides a handoff -------------------------------
+
+
+def commit_empty(project, message="next"):
+    """A commit on the project, so a handoff's head falls behind HEAD."""
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-q", "--allow-empty", "-m", message],
+                   cwd=project.root, check=True)
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=project.root,
+                          text=True, capture_output=True, check=True).stdout.strip()
+
+
+def abandoned_commit(project):
+    """A commit of this repository that is not on its branch.
+
+    `commit-tree` writes an object and touches neither HEAD nor the index, so the
+    test gets the shape a rebase leaves behind without rewriting anything.
+    """
+    tree = subprocess.run(["git", "mktree"], cwd=project.root, input="",
+                          text=True, capture_output=True, check=True).stdout.strip()
+    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                           "commit-tree", tree, "-m", "abandoned"],
+                          cwd=project.root, text=True, capture_output=True,
+                          check=True).stdout.strip()
+
+
+def iso_ago(**delta):
+    return (datetime.now().astimezone() - timedelta(**delta)).isoformat(timespec="seconds")
+
+
+def write_status_handoff(project, role, head, *, created_at=None, handoff_id=None):
+    """A handoff document shaped like the ones the agents write."""
+    directory = project.root / ".agentorch" / "handoffs" / role
+    directory.mkdir(parents=True, exist_ok=True)
+    data = {"schema_version": 1,
+            "handoff_id": handoff_id or str(uuid.uuid4()),
+            "project": project.root.name, "agent_id": role, "role": role,
+            "created_at": created_at or iso_ago(minutes=5),
+            "source_pi_session_id": "01a1f453-0174-7369",
+            "status": "prepared",
+            "git": {"branch": "master", "head": head,
+                    "status_summary": "clean tree"}}
+    path = directory / f"{data['handoff_id']}.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+@pytest.fixture
+def pi_agent(tmp_path, monkeypatch):
+    """A throwaway Pi agent directory: its session store and its model catalogue."""
+    agent_dir = tmp_path / "pi-agent"
+    (agent_dir / "sessions").mkdir(parents=True)
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent_dir))
+    # The store of the machine running the suite is not a fixture: a role's
+    # session id must only ever resolve against the throwaway store.
+    monkeypatch.delenv("PI_SESSION_FILE", raising=False)
+    return agent_dir
+
+
+def write_transcript(agent_dir, session_id, *, model="test-model", total=176283,
+                     project_dir="proj"):
+    """One Pi transcript: one JSON object per line, as Pi writes them."""
+    store = Path(agent_dir) / "sessions" / project_dir
+    store.mkdir(parents=True, exist_ok=True)
+    path = store / f"2026-11-25T10-00-00-000Z_{session_id}.jsonl"
+    path.write_text("\n".join(json.dumps(record) for record in (
+        {"type": "message", "message": {"role": "user", "content": [
+            {"type": "text", "text": "go"}]}},
+        {"type": "message", "message": {
+            "role": "assistant", "model": model,
+            "usage": {"input": 10, "output": 20, "cacheRead": 0,
+                      "reasoning": 0, "totalTokens": total}}},
+        # La última línea no lleva `usage`: se toma el último mensaje que sí.
+        {"type": "message", "message": {"role": "user", "content": [
+            {"type": "text", "text": "and now?"}]}},
+    )) + "\n")
+    return path
+
+
+def one_role(project, *, session_id=None, pid=500):
+    write_registry(project, tabs={"orchestrator": {
+        "name": "Orquestador", "tab_id": "tb1", "terminal_id": "t1",
+        "pane_id": "p1", "app": "pi", "pid": pid, "session_id": session_id}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=pid)])
+
+
+def status_roles(capsys):
+    return json.loads(capsys.readouterr().out)["roles"]
+
+
+def test_status_reports_the_age_and_the_head_of_the_newest_handoff(project, capsys):
+    one_role(project)
+    head = commit_empty(project, "the head the agent recorded")
+    write_status_handoff(project, "orchestrator", head,
+                         created_at=iso_ago(days=3),
+                         handoff_id="11111111-1111-4111-8111-111111111111")
+    newest = write_status_handoff(project, "orchestrator", head,
+                                  created_at=iso_ago(hours=2),
+                                  handoff_id="22222222-2222-4222-8222-222222222222")
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert head[:7] in out
+    assert "2h ago" in out                      # la antigüedad del más nuevo
+    assert "3d ago" not in out                  # el anterior no se cuela
+
+    assert project.module.status(as_json=True) == 0
+    handoff = status_roles(capsys)[0]["handoff"]
+    assert handoff["present"] is True
+    assert handoff["handoff_id"] == "22222222-2222-4222-8222-222222222222"
+    assert handoff["path"] == str(newest)
+    assert handoff["head"] == head
+    assert 7200 <= handoff["age_seconds"] < 7400
+
+
+def test_status_says_a_role_has_no_handoff_on_its_own_line(project, capsys):
+    """Un rol sin handoff no se omite: lo dice, y no hace fallar el comando."""
+    write_registry(project, tabs={
+        "orchestrator": {"name": "Orquestador", "tab_id": "tb1",
+                         "terminal_id": "t1", "pane_id": "p1", "app": "pi",
+                         "pid": 500},
+        "worker_1": {"name": "Worker 1", "tab_id": "tb2", "terminal_id": "t2",
+                     "pane_id": "p2", "app": "pi", "pid": 501}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500),
+                        live_tab("tb2", "Worker 1", "t2", pid=501)])
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    said = [line for line in out.splitlines() if "no handoff:" in line]
+    assert len(said) == 2                       # una por rol, ninguna omitida
+    assert sum("nothing to compare: there is no handoff" in line
+               for line in out.splitlines()) == 2
+
+    assert project.module.status(as_json=True) == 0
+    roles = status_roles(capsys)
+    assert [role["handoff"]["present"] for role in roles] == [False, False]
+    assert all(role["drift"]["commits"] is None for role in roles)
+    assert all("no handoff" in role["drift"]["detail"] for role in roles)
+
+
+def test_status_measures_how_far_the_repository_moved(project, capsys):
+    # El estado de agentorch no ensucia el árbol: es lo que un proyecto real
+    # hace, y este repo hace, para que `status` hable del trabajo, no de su store.
+    (project.root / ".git" / "info" / "exclude").write_text(".agentorch/\n")
+
+    one_role(project)
+    head = commit_empty(project, "the handoff point")
+    write_status_handoff(project, "orchestrator", head)
+    commit_empty(project, "one")
+    commit_empty(project, "two")
+
+    assert project.module.status(as_json=True) == 0
+    drift = status_roles(capsys)[0]["drift"]
+    assert drift["commits"] == 2
+    assert drift["ancestor"] is True
+    assert drift["dirty"] is False
+    assert drift["dirty_files"] == 0
+
+    (project.root / "notes.txt").write_text("work in progress\n")
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "2 commit(s)" in out
+    assert "1 uncommitted file(s)" in out
+
+    assert project.module.status(as_json=True) == 0
+    drift = status_roles(capsys)[0]["drift"]
+    assert drift["commits"] == 2
+    assert drift["dirty"] is True
+    assert drift["dirty_files"] == 1
+
+
+def test_status_says_a_rewritten_branch_instead_of_inventing_a_count(project, capsys):
+    one_role(project)
+    write_status_handoff(project, "orchestrator", abandoned_commit(project))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "not an ancestor" in out
+    assert "rebased or rewritten" in out
+
+    assert project.module.status(as_json=True) == 0
+    drift = status_roles(capsys)[0]["drift"]
+    assert drift["ancestor"] is False
+    assert drift["commits"] is None             # no se inventa una cuenta
+
+
+def test_status_reports_the_tokens_of_the_last_turn(project, pi_agent, capsys):
+    session = "01a1f453-0174-7369-9a3a-111111111111"
+    one_role(project, session_id=session)
+    path = write_transcript(pi_agent, session)
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "176,283" in out
+    assert "test-model" in out
+    assert "no percentage" in out               # no hay ventana legible
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["total_tokens"] == 176283
+    assert usage["model"] == "test-model"
+    assert usage["transcript"] == str(path)
+    assert usage["context_window"] is None
+    assert usage["percent"] is None
+
+
+def test_status_shows_the_percentage_only_when_the_window_is_known(
+        project, pi_agent, capsys):
+    session = "01a1f453-0174-7369-9a3a-222222222222"
+    one_role(project, session_id=session)
+    write_transcript(pi_agent, session)
+    (pi_agent / "models.json").write_text(json.dumps({"providers": {"local": {
+        "models": [{"id": "test-model", "contextWindow": 200000}]}}}))
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "88%" in out
+    assert "200,000" in out
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["context_window"] == 200000
+    assert usage["percent"] == 88
+
+
+def test_status_says_which_source_is_missing_for_the_tokens(project, pi_agent, capsys):
+    """Sin session id, sin transcripción y sin store: se dice, no se falla."""
+    known = "11111111-2222-4333-8444-555555555555"
+    write_registry(project, tabs={
+        "orchestrator": {"name": "Orquestador", "tab_id": "tb1",
+                         "terminal_id": "t1", "pane_id": "p1", "app": "pi",
+                         "pid": 500, "session_id": known},
+        "worker_1": {"name": "Worker 1", "tab_id": "tb2", "terminal_id": "t2",
+                     "pane_id": "p2", "app": "pi", "pid": 501,
+                     "session_id": None}})
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500),
+                        live_tab("tb2", "Worker 1", "t2", pid=501)])
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "no transcript" in out
+    assert "no session id" in out
+
+    assert project.module.status(as_json=True) == 0
+    roles = status_roles(capsys)
+    assert roles[0]["usage"]["total_tokens"] is None
+    assert "no transcript" in roles[0]["usage"]["detail"]
+    assert "no session id" in roles[1]["usage"]["detail"]
+
+
+def test_a_missing_session_store_does_not_fail_the_command(
+        project, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "nowhere"))
+    monkeypatch.delenv("PI_SESSION_FILE", raising=False)
+    one_role(project, session_id="11111111-2222-4333-8444-666666666666")
+
+    assert project.module.status(as_json=True) == 0
+    usage = status_roles(capsys)[0]["usage"]
+    assert usage["total_tokens"] is None
+    assert "no transcript" in usage["detail"]
+
+
+def test_an_unreadable_handoff_does_not_fail_the_command(project, capsys):
+    one_role(project)
+    directory = project.root / ".agentorch" / "handoffs" / "orchestrator"
+    directory.mkdir(parents=True)
+    (directory / "broken.json").write_text("{not json")
+
+    assert project.module.status() == 0
+    out = capsys.readouterr().out
+    assert "could not be read" in out
+
+    assert project.module.status(as_json=True) == 0
+    handoff = status_roles(capsys)[0]["handoff"]
+    assert handoff["present"] is True
+    assert handoff["head"] is None
+
+
+def test_status_keeps_its_contract_with_the_new_detail(project, capsys):
+    """Los estados, la divergencia y el código de salida no cambian."""
+    write_registry(project, tabs={"orchestrator": {
+        "name": "Orquestador", "tab_id": "tb1", "terminal_id": "t1",
+        "pane_id": "p1", "app": "pi", "pid": 500}})
+    seed_live(project, [live_tab("tb2", "Other", "t2", pid=500)])
+
+    assert project.module.status(as_json=True) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == {"registry", "roles", "summary"}
+    assert payload["summary"] == {"total": 1, "alive": 0, "diverged": True}
+    assert payload["roles"][0]["state"] == "missing"
+    assert {"role", "name", "state", "detail"} <= set(payload["roles"][0])
+
+    assert project.module.status() == 1
+    out = capsys.readouterr().out
+    assert "  orchestrator  missing" in out
+    assert "0 of 1 role(s) alive" in out
 
 
 # --- the handoff document ---------------------------------------------------

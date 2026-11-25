@@ -140,10 +140,53 @@ replace `agentorch status`, which stays the one that rules on divergence. When
 the registry or `herdr-app ls` cannot be read it prints what it can, shows `?`
 for the counts it cannot compute and exits non-zero.
 
+## Status: what decides a handoff
+
+`agentorch status` still rules on divergence: per registered role it reports
+`alive`, `down`, `missing` or `moved`, prints a summary and exits 1 when any role
+is `missing` or `moved`. Those states, that rule, the exit code and `--json` do
+not change. Under each role line it now adds the three facts that decide who
+needs a handoff:
+
+```
+  orchestrator  alive       pid 500
+      handoff  2h ago · head 8eff889 · prepared
+      drift    2 commit(s) since that head · 1 uncommitted file(s)
+      tokens   176,283 tokens · model demo-model · about 88% of a 200,000-token window
+  worker_1      alive       pid 501
+      handoff  no handoff: nothing to compare
+      drift    nothing to compare: there is no handoff
+      tokens   no session id in the registry: the tokens are unknown
+2 of 2 role(s) alive
+```
+
+Where each number comes from (`[agentorch] `, which prefixes every line, is
+omitted here):
+
+| Line | Source |
+| --- | --- |
+| `handoff` | The newest file in `.agentorch/handoffs/<key>/` by modification time: its age from `created_at` (the file's mtime when the document has none) and the `git.head` the agent recorded. |
+| `drift` | `git rev-list --count <handoff head>..HEAD` and `git status --porcelain`, measured in the project. A head that is no longer an ancestor of `HEAD` — a rebase, a rewritten branch — says so instead of printing a count it cannot count. |
+| `tokens` | The last message of the role's Pi transcript that carries a `usage` block: `usage.totalTokens` with the model name. The transcript is found by its session id under Pi's own session store (`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`), never by a guessed path. |
+| percentage | `totalTokens` covers the turn's request and its answer, so it is a fair reading of how full the window is — but the transcript holds **no** window. Pi states it in its model configuration (`models.json`, then `models-store.json`, keyed by model id or name), so a percentage appears only when the model is found there with a positive `contextWindow`. Otherwise the tokens are shown alone and the line says `no context window known: no percentage`: agentorch does not estimate it. |
+
+Every source is optional and read-only. A role with no handoff, no session id, no
+readable transcript, an unreadable document, or a store that is not there is said
+per role on its own line; none of them makes the command fail, and nothing is
+written or sent to an agent. `--json` carries the same fields as `handoff`,
+`drift` and `usage` objects per role, with the raw values (`age_seconds`, `head`,
+`commits`, `ancestor`, `dirty`, `dirty_files`, `total_tokens`,
+`context_window`, `percent`) next to the sentence that explains them.
+
+Because `drift` reports what `git status` says, keep agentorch's runtime state out
+of the tree — this repository ignores `.agentorch/handoffs/` and
+`.agentorch/registry.json` — or every role will read as dirty.
+
 ## What it does not do
 
 - It does not start Pi in tabs that already existed; only in tabs it creates.
-- It does not manage handoffs, context or session replacement yet.
+- It does not write handoffs, edit context or replace sessions; `status` only
+  reads them.
 - It is not published on PyPI.
 
 ## Development

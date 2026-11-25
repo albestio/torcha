@@ -163,6 +163,22 @@ def validate_handoff(data: Any, *, project_name: str | None = None,
     return problems
 
 
+def newest_handoff(role: str) -> Path | None:
+    """The newest handoff document of a role, or None when it has none.
+
+    "Newest" is the last one written, by modification time: that is the document
+    the agents are told to read and the one that describes the role now.
+    """
+    directory = handoff_dir(role)
+    try:
+        candidates = [path for path in directory.glob("*.json") if path.is_file()]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+    except OSError:
+        return None
+
+
 def load_handoff(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise AgentorchError(f"The handoff does not exist: {path}")
