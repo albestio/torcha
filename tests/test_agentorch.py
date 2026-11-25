@@ -26,11 +26,16 @@ SRC_DIR = Path(os.environ.get(
 ))
 
 TABS = [
-    {"key": "orchestrator", "name": "Orquestador", "role": "Coordina."},
-    {"key": "worker_1", "name": "Worker 1", "role": "Investiga."},
-    {"key": "worker_2", "name": "Worker 2", "role": "Implementa."},
-    {"key": "worker_3", "name": "Worker 3", "role": "Revisa."},
-    {"key": "worker_4", "name": "Worker 4", "role": "Prueba."},
+    {"key": "orchestrator", "name": "Orquestador", "role": "Coordina.",
+     "instructions": "- Reparte el trabajo."},
+    {"key": "worker_1", "name": "Worker 1", "role": "Investiga.",
+     "instructions": "- Investiga y reporta."},
+    {"key": "worker_2", "name": "Worker 2", "role": "Implementa.",
+     "instructions": "- Implementa y prueba."},
+    {"key": "worker_3", "name": "Worker 3", "role": "Revisa.",
+     "instructions": "- Revisa lo implementado."},
+    {"key": "worker_4", "name": "Worker 4", "role": "Prueba.",
+     "instructions": "- Prueba de extremo a extremo."},
 ]
 
 # A stand-in for the real binary: same command shapes, no window.
@@ -1557,6 +1562,80 @@ def test_the_interview_prompt_covers_only_the_pending_roles(project, monkeypatch
     assert "Every `role` and `instructions` is empty" not in text
 
 
+def test_a_role_is_pending_while_either_field_is_empty(project):
+    """S13: `initial_tabs` and `discover` leave `role` set and `instructions` empty."""
+    (project.root / ".agentorch/agents.json").write_text(json.dumps({
+        "pi": {"executable": "pi", "bootstrap": "greet"},
+        "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                  "role": "Not declared in the repository; describe it.",
+                  "instructions": ""},
+                 {"key": "coach", "name": "Coach",
+                  "role": "Coaches the team.", "instructions": "- a"},
+                 {"key": "auditor", "name": "Auditor",
+                  "role": "Audits the work."}]}))
+
+    pending = project.module.init_module.unfilled_roles()
+
+    # El texto del placeholder no decide nada: decide que falte un campo.
+    assert pending == ["orchestrator", "auditor"]
+    # Y `init` la trata como pendiente: no aplica una configuración a medias.
+    assert project.module.init(plain=True) == 1
+
+
+def test_the_interview_names_the_field_a_pending_role_still_needs(project):
+    """A role with `role` written is asked for its instructions, not for itself."""
+    skeleton = [
+        {"key": "orchestrator", "name": "Orquestador",
+         "role": "Coordinates the team.", "instructions": "- a"},
+        {"key": "coach", "name": "Coach",
+         "role": "Coaches the team.", "instructions": ""},
+    ]
+    payload = {"space": "proj", "tabs": []}
+
+    text = project.module.init_module._interview_prompt(skeleton, payload)
+
+    assert "The interview covers only these roles, which are still empty: `coach`." \
+        in text
+    # Se dice qué campo falta, y no se pide describir desde cero una role escrita.
+    assert "- `coach`: `instructions` is empty; `role` is filled and must not " \
+        "be rewritten." in text
+    assert "`coach`: `role` and `instructions` are both empty" not in text
+    # La role pendiente no se anuncia como escrita; la escrita sigue protegida.
+    assert "Every `role` and `instructions` is empty" not in text
+    assert "already written by their agents" in text
+
+
+def test_a_written_team_needs_no_interview_and_a_seed_keeps_its_wording(
+        project, monkeypatch):
+    """S13 leaves both ends alone: nothing pending, and a first-time seed."""
+    (project.root / ".agentorch/agents.json").write_text(json.dumps({
+        "pi": {"executable": "pi", "bootstrap": "greet"},
+        "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                  "role": "Coordinates the team.", "instructions": "- a"},
+                 {"key": "coach", "name": "Coach",
+                  "role": "Coaches the team.", "instructions": "- b"}]}))
+    monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty", lambda: True)
+    called = {}
+    monkeypatch.setattr(project.module.init_module, "start_interview",
+                        lambda candidates, seen=None: called.setdefault("ran", True))
+
+    assert project.module.init_module.unfilled_roles() == []
+    assert project.module.init() == 0
+    assert "ran" not in called
+
+    seed = [{"key": "orchestrator", "name": "Orquestador",
+             "role": "", "instructions": ""},
+            {"key": "revisor", "name": "Revisor",
+             "role": "", "instructions": ""}]
+    text = project.module.init_module._interview_prompt(
+        seed, {"space": "proj", "tabs": []})
+
+    assert "Every `role` and `instructions` is empty. Fill them from what each " \
+        "agent" in text
+    assert "What is still empty, per role:" not in text
+
+
 def test_a_first_time_seed_keeps_the_original_interview_wording(project):
     skeleton = [{"key": "orchestrator", "name": "Orquestador", "role": ""},
                 {"key": "revisor", "name": "Revisor", "role": ""}]
@@ -1577,6 +1656,18 @@ def test_the_setup_skill_asks_only_the_pending_roles(project):
     assert "never ask it again and never rewrite it" in text
     # "Ask every agent in the list" solo es cierto para un primer sembrado.
     assert "Ask every agent in the list" not in text
+
+
+def test_the_setup_skill_fills_only_the_empty_field(project):
+    text = " ".join(
+        project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8").split())
+
+    # La skill dice lo mismo por campo: qué falta, y qué no se toca.
+    assert "it says which of the two fields is empty" in text
+    assert "ask that agent only what it must not touch" in text
+    assert "leave its `role` as it is" in text
+    assert "Never ask an agent to describe a responsibility that is already " \
+        "written" in text
 
 
 def test_the_setup_skill_carries_the_rules(project):

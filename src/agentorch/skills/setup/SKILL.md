@@ -45,12 +45,17 @@ you end up summarising three agents at once and attributing one's rule to
 another. If the reply is long anyway, re-read it before writing and quote only
 what that agent said.
 
-**Ask only the roles the prompt marks as pending.** The first message names them:
-with a first-time seed that is every role, with a partially filled team it is only
-the ones still empty. A role that already carries `role` and `instructions` was
-written by that agent in an earlier interview: never ask it again and never
-rewrite it. Not the human first, and not another agentorch session: the
-conventions are here, in this file.
+**Ask only the roles the prompt marks as pending, and only for the fields it
+marks as empty.** The first message names them: with a first-time seed that is
+every role, with a partially filled team it is only the ones still empty, and for
+each one it says which of the two fields is empty. A role that already carries
+both `role` and `instructions` was written by that agent in an earlier interview:
+never ask it again and never rewrite it. A role whose `role` is filled and whose
+`instructions` are empty is pending on `instructions` alone: ask that agent only
+what it must not touch, what it needs before starting and how it decides it is
+done, and leave its `role` as it is. Never ask an agent to describe a
+responsibility that is already written. Not the human first, and not another
+agentorch session: the conventions are here, in this file.
 
 **If an agent says it already answered another setup session**, say so and reuse
 that answer: it is the same agent describing the same job. Contrast it with what
@@ -84,7 +89,8 @@ The file stays English either way.
 
 ## 4. Fill the file
 
-Write only `role` and `instructions`:
+Write only the fields the first message marks as empty, and only `role` and
+`instructions`:
 
 - **`role`**: one English sentence, built from what that agent answered.
 - **`instructions`**: 3 to 5 bullets, English, from the same answer — what it must
@@ -135,9 +141,10 @@ creating new ones.
 
 ## 6. When an agent does not answer
 
-That is a finding, not an obstacle. Leave its `role` empty, tell the human which
-ones are missing and why, and finish. `agentorch init` will refuse to apply a file
-with empty roles, and will ask for the interview again.
+That is a finding, not an obstacle. Leave the fields that agent did not fill
+empty, tell the human which ones are missing and why, and finish. `agentorch
+init` will refuse to apply a file with an empty `role` or an empty
+`instructions`, and will ask for the interview again.
 
 **Never invent a scope.** Not from the tab name, not from the repository, not from
 another agent's description of it. A guessed role is worse than a missing one: it

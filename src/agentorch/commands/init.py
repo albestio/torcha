@@ -118,16 +118,32 @@ def proposed_sessions() -> dict[str, str]:
     return result
 
 
+# The fields a role carries prose in: either one being empty leaves it pending.
+ROLE_FIELDS = ("role", "instructions")
+
+
+def _missing_fields(tab: dict) -> list[str]:
+    """The fields of a role that still carry no text.
+
+    The test is emptiness, not the wording: `initial_tabs` and `discover` write
+    a `role` nobody chose and leave `instructions` empty, and such a role is as
+    unfinished as one with no `role` at all.
+    """
+    return [field for field in ROLE_FIELDS
+            if not str(tab.get(field) or "").strip()]
+
+
 def _pending_keys(tabs: list) -> list[str]:
-    """Keys whose `role` is still empty: the one rule for "still to be written"."""
+    """Keys with an empty `role` or an empty `instructions`: still to be written."""
     return [str(tab.get("key")) for tab in tabs
-            if isinstance(tab, dict) and not str(tab.get("role") or "").strip()]
+            if isinstance(tab, dict) and _missing_fields(tab)]
 
 
 def unfilled_roles() -> list[str]:
-    """Keys whose role is still empty. Reads the raw file: load_config() falls
+    """Keys with an empty `role` or an empty `instructions`. Reads the raw file:
 
-    back to the name, which would hide an unfinished interview.
+    load_config() falls back to the name, which would hide an unfinished
+    interview.
     """
     if not project.CONFIG_FILE.exists():
         return []
@@ -154,6 +170,18 @@ class Interview:
     pending: tuple[str, ...] = ()
 
 
+def _empty_fields_line(key: str, tab: dict) -> str:
+    """What one pending role still needs, field by field, and what not to touch."""
+    missing = _missing_fields(tab)
+    if len(missing) == len(ROLE_FIELDS):
+        return f"- `{key}`: `role` and `instructions` are both empty."
+    if missing == ["role"]:
+        return (f"- `{key}`: `role` is empty; `instructions` is filled and must "
+                "not be rewritten.")
+    return (f"- `{key}`: `instructions` is empty; `role` is filled and must not "
+            "be rewritten.")
+
+
 def _interview_prompt(skeleton: list[dict[str, str]], payload: dict,
                       pending: list[str] | None = None) -> str:
     """The project-specific data; the procedure lives in the setup skill."""
@@ -176,20 +204,32 @@ def _interview_prompt(skeleton: list[dict[str, str]], payload: dict,
                      f"{entry.get('app') or '—'} | {entry.get('status') or '—'} |")
     pending_keys = _pending_keys(skeleton) if pending is None else list(pending)
     listed = ", ".join(f"`{key}`" for key in pending_keys) or "none"
+    by_key = {str(tab.get("key")): tab for tab in skeleton}
+    written = [key for key, tab in by_key.items() if not _missing_fields(tab)]
+    # Un primer sembrado es el único caso en que todo está vacío: el aviso de
+    # campos vacíos solo se sostiene entonces.
+    seed = all(len(_missing_fields(tab)) == len(ROLE_FIELDS) for tab in skeleton)
     lines += [""]
-    if len(pending_keys) < len(skeleton):
-        # Parte del equipo ya está escrito: la entrevista es solo sobre lo que
-        # falta, y las roles que ya escribió su agente no se tocan.
-        lines += [
-            f"The interview covers only these roles, which are still empty: {listed}.",
-            "The other roles in the table are already written by their agents: do not",
-            "touch or rewrite them. Fill the pending `role` and `instructions` from",
-            "what each of those agents tells you, following the setup skill.",
-            "Do not touch keys, names or order.",
-        ]
-    else:
+    if seed:
         lines += [
             "Every `role` and `instructions` is empty. Fill them from what each agent",
+            "tells you, following the setup skill. Do not touch keys, names or order.",
+        ]
+    else:
+        # Parte del equipo ya está escrito: la entrevista es solo sobre lo que
+        # falta, campo por campo, y las roles que ya escribió su agente no se tocan.
+        lines.append("The interview covers only these roles, which are still "
+                     f"empty: {listed}.")
+        if written:
+            lines += [
+                "The other roles in the table are already written by their agents:",
+                "do not touch or rewrite them.",
+            ]
+        lines += ["What is still empty, per role:"]
+        lines += [_empty_fields_line(key, by_key.get(key, {}))
+                  for key in pending_keys]
+        lines += [
+            "Fill only the fields named as empty, from what each of those agents",
             "tells you, following the setup skill. Do not touch keys, names or order.",
         ]
     lines.append("")
