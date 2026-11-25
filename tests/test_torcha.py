@@ -2828,9 +2828,12 @@ def test_handoff_run_swaps_only_when_asked(project, monkeypatch):
     entry = project.registry()["herdr"]["tabs"]["orchestrator"]
     assert entry["pid"] == 1002     # el pid de la tab que crea el fake, no el viejo
     assert entry["session_id"] != "11111111-1111-4111-8111-111111111111"
-    # y el handoff consumido queda marcado: no se reutiliza en el próximo run
+    # y el handoff consumido queda marcado: no se reutiliza en el próximo run.
+    # Se busca el que quedó consumido en vez de leer el primero del glob: con dos
+    # documentos el orden del sistema de ficheros no significa nada.
     files = list((project.root / ".torcha" / "handoffs" / "orchestrator").glob("*.json"))
-    assert json.loads(files[0].read_text())["status"] == "consumed"
+    statuses = [json.loads(path.read_text())["status"] for path in files]
+    assert statuses.count("consumed") == 1
     # El relevo no teclea nada en un shell: cierra la tab y abre otra con --argv.
     assert [opts["id"] for opts in project.options_for("tab.close")] == ["tb1"]
     created = project.options_for("tab.new")
@@ -4883,3 +4886,22 @@ def test_the_wheel_carries_the_files_a_launch_depends_on(tmp_path):
                      "torcha/skills/setup/SKILL.md",
                      "torcha/templates/software-team.json"):
         assert expected in names, f"{expected} is missing from the wheel"
+
+
+def test_two_handoffs_written_at_the_same_instant_have_a_stable_winner(
+        project):
+    """El "más reciente" no puede depender del orden del sistema de ficheros.
+
+    Dos documentos con la misma marca de tiempo eligen siempre el mismo, aquí y
+    en cualquier versión de Python: el nombre desempata.
+    """
+    directory = project.root / ".torcha" / "handoffs" / "orchestrator"
+    directory.mkdir(parents=True)
+    for name in ("zzz.json", "aaa.json"):
+        path = directory / name
+        path.write_text(json.dumps({"status": "prepared", "objective": name}))
+        os.utime(path, ns=(1_700_000_000_000_000_000,) * 2)
+
+    chosen = project.module.handoff.newest_handoff("orchestrator")
+
+    assert chosen is not None and chosen.name == "zzz.json"

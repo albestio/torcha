@@ -262,7 +262,8 @@ def _prepared(key: str) -> Path | None:
     if not directory.is_dir():
         return None
     newest_first = sorted(directory.glob("*.json"),
-                          key=lambda item: item.stat().st_mtime, reverse=True)
+                          key=lambda item: (item.stat().st_mtime_ns, item.name),
+                          reverse=True)
     for path in newest_first:
         try:
             data = load_handoff(path)

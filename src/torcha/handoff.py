@@ -174,7 +174,11 @@ def newest_handoff(role: str) -> Path | None:
         candidates = [path for path in directory.glob("*.json") if path.is_file()]
         if not candidates:
             return None
-        return max(candidates, key=lambda path: path.stat().st_mtime)
+        # El nombre desempata: dos documentos escritos en el mismo instante
+        # tienen la misma marca, y sin desempate el "más nuevo" depende del
+        # orden del sistema de ficheros — que cambia entre versiones.
+        return max(candidates,
+                   key=lambda path: (path.stat().st_mtime_ns, path.name))
     except OSError:
         return None
 
