@@ -4690,3 +4690,35 @@ def test_every_option_and_subcommand_is_in_the_documented_contract():
                         f"{order}; the top-level help lists them as {expected}")
 
     assert not problems, "\n".join(problems)
+
+
+def test_init_reports_a_named_tab_without_an_agent_even_with_the_config_written(
+        project, capsys):
+    """Con la config completa no hay entrevista: era la ruta que callaba."""
+    (project.root / ".agentorch").mkdir(parents=True, exist_ok=True)
+    (project.root / ".agentorch/agents.json").write_text(json.dumps({
+        "pi": {"executable": "pi", "bootstrap": "greet"},
+        "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                  "role": "Coordinates.", "instructions": "Do not push."}],
+    }))
+    # El space tiene que emparejar por carpeta, o `init` crea uno nuevo y nunca
+    # llega al camino de reconciliación que este test describe.
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": str(project.root), "active": True,
+        "tabs": [
+            {"id": "tb1", "name": "Orquestador", "active": True,
+             "terminals": [{"terminal": "t1", "pane": "p1",
+                            "cwd": str(project.root), "app": "pi",
+                            "status": "idle", "pid": 500}]},
+            {"id": "tb2", "name": "Extra", "active": False,
+             "terminals": [{"terminal": "t2", "pane": "p2",
+                            "cwd": str(project.root), "app": None,
+                            "status": None, "pid": None}]},
+        ]}], "calls": []}))
+
+    assert project.module.init(plain=True) == 0
+
+    reported = [line for line in capsys.readouterr().err.splitlines()
+                if "no agent running" in line]
+    assert len(reported) == 1
+    assert "Extra" in reported[0]

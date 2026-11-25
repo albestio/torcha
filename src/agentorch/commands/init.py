@@ -318,8 +318,11 @@ def start_interview(candidates,
 
     directory = project.AGENTORCH_DIR
     directory.mkdir(parents=True, exist_ok=True)
+    # Se avisa siempre que este comando ya ha leído el workspace: con la config
+    # escrita no lo hacía nadie, y una tab cuyo Pi murió es justo la que el humano
+    # no ve. `seen` evita que otra ruta lo repita.
+    report_tabs_without_agent(live_tabs, own_tab_id, seen)
     if not project.CONFIG_FILE.exists():
-        report_tabs_without_agent(live_tabs, own_tab_id, seen)
         tabs = skeleton_from_live(live_tabs, max_tabs=configured_max_tabs(),
                                   own_tab_id=own_tab_id)
         if not tabs:
@@ -443,6 +446,12 @@ def init(plain: bool = False, as_json: bool = False) -> int:
             if not sid:
                 raise AgentorchError("The project's space was found, but its ID could not be extracted.")
             say(f"Existing space recovered: {sid}")
+            # Un espacio que ya existe puede tener tabs nombradas cuyo agente murió:
+            # con la configuración ya escrita nadie las menciona, y son justo las
+            # que el humano no ve. Se reutiliza el `ls` que este comando ya leyó,
+            # así que avisar no cuesta ningún probe; `seen` evita que otra ruta lo
+            # repita en la misma ejecución.
+            report_tabs_without_agent(inspect_space(space, candidates), None, seen)
         else:
             # 2. Crear el space con la primera tab (Orquestador).
             say("No space is associated with this folder. Creating one...")
