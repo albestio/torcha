@@ -1,32 +1,32 @@
 ---
-name: agentorch
+name: torcha
 description: >
-  Audit an existing Herdr workspace before adopting it with agentorch: identify
+  Audit an existing Herdr workspace before adopting it with torcha: identify
   the main session, normalise tab names to English, and generate
-  .agentorch/agents.json from what the project and the workspace already declare.
+  .torcha/agents.json from what the project and the workspace already declare.
   Use when the user asks to adopt a project that already has tabs or agents, to
   find out which tab is the orchestrator, or to rename tabs.
 ---
 
-# Agentorch workspace audit
+# Torcha workspace audit
 
-You are auditing a project that already runs, before agentorch takes it over.
+You are auditing a project that already runs, before torcha takes it over.
 Your job is to report what exists, propose names, and only then write config.
 
-## 1. agentorch is the only source of truth
+## 1. torcha is the only source of truth
 
 **Never run `hc` or `herdr-app` yourself.** Not to "check", not to "confirm", not
 because a command failed. Those tools answer for the whole machine: 20+ spaces,
 every project on it, and no notion of which one you are working on. Reading them
 is how a role from one project gets attributed to another.
 
-Everything you need comes from agentorch, already scoped to this project:
+Everything you need comes from torcha, already scoped to this project:
 
 ```bash
-agentorch discover --live --json --project <path>   # everything, machine readable
-agentorch discover --live --project <path>          # the same, for a human
-agentorch status --json                             # registry vs reality
-agentorch doctor                                    # preconditions
+torcha discover --live --json --project <path>   # everything, machine readable
+torcha discover --live --project <path>          # the same, for a human
+torcha status --json                             # registry vs reality
+torcha doctor                                    # preconditions
 ```
 
 `--json` gives you, per tab: `tab_id`, `terminal_id`, `name`, `renamed`,
@@ -52,7 +52,7 @@ Apply these rules in order and stop at the first that answers:
 If two or more tabs run agents and none states the role, do **not** pick one.
 Report the ambiguity and ask the human.
 
-`agentorch discover --live` already prints `Main session: <name>` using exactly
+`torcha discover --live` already prints `Main session: <name>` using exactly
 these rules. If it says `no identificada`, say so and stop.
 
 ## 3. Naming conventions
@@ -77,7 +77,7 @@ Show the human a table of current name → proposed name, and wait for approval.
 Then, one call per tab:
 
 ```bash
-agentorch rename <role> "<New Name>"
+torcha rename <role> "<New Name>"
 ```
 
 Rules:
@@ -86,12 +86,12 @@ Rules:
 - Never close, move or recreate a tab during an audit.
 - If a tab runs an agent, renaming does not disturb it; if it does not, the tab
   is just a shell.
-- Re-run `agentorch discover --live` afterwards and confirm the report shows the
+- Re-run `torcha discover --live` afterwards and confirm the report shows the
   new names and the same `Main session`.
 
 ## 5. Write the config
 
-`agentorch init` generates `.agentorch/agents.json` from the project's declared
+`torcha init` generates `.torcha/agents.json` from the project's declared
 roles when the file does not exist. If the audit produced a better team than
 what the files declare, write the file yourself with the agreed tabs, keeping
 `orchestrator` first:
@@ -105,11 +105,11 @@ what the files declare, write the file yourself with the agreed tabs, keeping
 }
 ```
 
-Then run `agentorch init` and check that every tab exists and has its agent.
+Then run `torcha init` and check that every tab exists and has its agent.
 
 ## What this audit must not do
 
-- Create a Herdr space or tab. That is `agentorch init`'s job.
+- Create a Herdr space or tab. That is `torcha init`'s job.
 - Start or kill agents.
 - Change a role's meaning to fit a name.
 - Present a guess as a detection. If the evidence is thin, say it is thin.
