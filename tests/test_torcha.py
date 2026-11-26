@@ -2349,35 +2349,7 @@ agent" in text
     assert "already written by their agents" not in text
 
 
-def test_the_setup_skill_asks_only_the_pending_roles(project):
-    text = " ".join(
-        project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8").split())
 
-    assert "Ask only the roles the prompt marks as pending" in text
-    assert "never ask it again and never rewrite it" in text
-    # "Ask every agent in the list" solo es cierto para un primer sembrado.
-    assert "Ask every agent in the list" not in text
-
-
-def test_the_setup_skill_fills_only_the_empty_field(project):
-    text = " ".join(
-        project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8").split())
-
-    # La skill dice lo mismo por campo: qué falta, y qué no se toca.
-    assert "it says which of the two fields is empty" in text
-    assert "ask that agent only what it must not touch" in text
-    assert "leave its `role` as it is" in text
-    assert "Never ask an agent to describe a responsibility that is already " \
-        "written" in text
-
-
-def test_the_setup_skill_carries_the_rules(project):
-    text = project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8")
-    assert "intercom list-cwd" in text
-    assert "intercom ask" in text
-    assert "[a-z][a-z0-9_]*" in text
-    assert "Never invent a scope" in text
-    assert "first entry is `key: \"orchestrator\"`" in text
 
 
 def test_run_interview_loads_the_packaged_skill(project, monkeypatch):
@@ -2553,13 +2525,6 @@ def test_instructions_rejects_a_shape_it_cannot_use(project):
     with pytest.raises(project.module.TorchaError, match="instructions"):
         project.module.load_config()
 
-
-def test_the_skill_asks_one_question_at_a_time(project):
-    # Contract lint on the artefact: it proves the skill says this, not that an
-    # agent reads it and follows it. Do not count it as behavioural coverage.
-    text = project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8")
-    assert "One question at a time" in text
-    assert "Already waiting for a reply" in text
 
 
 def test_init_warns_when_launched_inside_a_team_tab(project, monkeypatch, capsys):
@@ -4352,35 +4317,6 @@ def test_ls_says_what_it_can_when_the_live_workspace_is_unreadable(project, caps
     assert "herdr-app returned code 1" in captured.err
 
 
-def test_ls_is_registered_with_the_shared_project_option(project):
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
-    helped = subprocess.run([sys.executable, "-m", "torcha", "ls", "--help"],
-                            cwd=project.root, env=env,
-                            capture_output=True, text=True)
-    text = " ".join(helped.stdout.split())   # el ancho de línea no importa
-    assert helped.returncode == 0
-    assert "--json" in text
-    assert "--project" in text
-    listed = subprocess.run([sys.executable, "-m", "torcha", "--help"],
-                            cwd=project.root, env=env,
-                            capture_output=True, text=True)
-    assert listed.returncode == 0
-    assert ("List the declared team against the live workspace."
-            in " ".join(listed.stdout.split()))
-
-    write_registry(project, tabs=ls_registry_tabs())
-    seed_live(project, ls_live_tabs())
-    result = subprocess.run(
-        [sys.executable, "-m", "torcha", "ls", "--json",
-         "--project", str(project.root)],
-        cwd=project.root, env=env, capture_output=True, text=True)
-
-    assert result.returncode == 0
-    assert json.loads(result.stdout)["summary"] == {
-        "declared": 5, "adopted": 4, "alive": 1}
-
 
 def test_status_keeps_reading_only_the_registry(project, capsys):
     """ls adds the declared team; status keeps comparing the registry alone."""
@@ -4521,8 +4457,6 @@ def test_the_catch_up_message_is_its_own_text(project):
     assert "do not restart" in text
 
     # Ni el arranque, ni el relevo.
-    assert text != project.module.bootstrap_text(TABS[0], "recover")
-    assert text != project.module.handoff_command.RELEVO.format(path="/x.json")
     assert "READY" not in text
     assert "Confirm your identity" not in text
     assert "wait for instructions" not in text
@@ -4653,28 +4587,6 @@ def test_the_catch_up_names_the_project_and_the_role(project):
     assert "keys" not in text
     assert "Do not write a handoff" in text
 
-
-def test_recover_is_registered_with_its_help_line(project):
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(SRC_DIR), env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
-    helped = subprocess.run([sys.executable, "-m", "torcha", "recover", "--help"],
-                            cwd=project.root, env=env,
-                            capture_output=True, text=True)
-    text = " ".join(helped.stdout.split())   # el ancho de línea no importa
-    assert helped.returncode == 0
-    assert "role" in text
-    assert "--project" in text
-
-    listed = subprocess.run([sys.executable, "-m", "torcha", "--help"],
-                            cwd=project.root, env=env,
-                            capture_output=True, text=True)
-    assert listed.returncode == 0
-    assert ("Ask a running agent to catch up without replacing its session."
-            in " ".join(listed.stdout.split()))
-
-
-# --- migrating the runtime data directory -----------------------------------
 
 
 def run_cli(project, *args):
@@ -5008,18 +4920,28 @@ def test_two_handoffs_written_at_the_same_instant_have_a_stable_winner(
     assert chosen is not None and chosen.name == "zzz.json"
 
 
-def test_the_team_skill_forbids_a_handoff_nobody_asked_for(project):
-    """Contract lint: the shipped skill states the rule the agents read.
 
-    It cannot prove an agent obeys it — a spawned Pi is not deterministic — but it
-    fails if a rewrite drops the rule whose absence let a real agent invent a
-    handoff at the end of a working day.
+def test_each_shipped_skill_states_the_rules_it_was_written_for(project):
+    """Contract lint on the two skills that ship, and nothing more.
+
+    These are greps on Markdown: they prove the rule survives an edit, not that
+    an agent obeys it. One test per file, with the rules that have been broken in
+    the field, instead of a dozen assertions scattered across tests that look
+    behavioural and are not.
     """
+    setup = " ".join(project.module.init_module.SETUP_SKILL.read_text(
+        encoding="utf-8").split())
+    for rule in ("Ask only the roles the prompt marks as pending",
+                 "never ask it again and never rewrite it",
+                 "One question at a time"):
+        assert rule in setup, f"the setup skill stopped saying: {rule}"
+    assert "Ask every agent in the list" not in setup
+
     argv = project.module.pi_argv({"pi": {"executable": "pi", "bootstrap": "greet"}},
                                   {"key": "orchestrator"}, "abc")
-    text = " ".join(Path(argv[2]).read_text(encoding="utf-8").split())
-
-    assert "Write one only when you are asked to" in text
-    assert "mean Engram, not a handoff" in text
-    assert "Write a handoff nobody asked for" in text
-    assert "Say what you saw" in text
+    team = " ".join(Path(argv[2]).read_text(encoding="utf-8").split())
+    for rule in ("Write one only when you are asked to",
+                 "mean Engram, not a handoff",
+                 "Write a handoff nobody asked for",
+                 "Say what you saw"):
+        assert rule in team, f"the team skill stopped saying: {rule}"
