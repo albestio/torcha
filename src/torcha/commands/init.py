@@ -157,6 +157,24 @@ def unfilled_roles() -> list[str]:
     return _pending_keys(tabs)
 
 
+def _orchestrator_refusal(tabs: list[dict]) -> str | None:
+    """Why this skeleton cannot be written, or None.
+
+    The loader rejects a configuration whose first tab is not the orchestrator,
+    so writing one only moves the failure further away. The role cannot be
+    synthesised here: the only live tab that names it may be the one running
+    this command, and that tab is never a role.
+    """
+    first = str(tabs[0].get("key")) if tabs else ""
+    if first == "orchestrator":
+        return None
+    return (f"The configuration skeleton would start with '{first}', and a "
+            "configuration whose first tab is not 'orchestrator' is rejected "
+            "when it is read. The tab running this command cannot be a role, so "
+            "no live tab names the coordinating role: run 'torcha init' from a "
+            "tab that is not part of the team. Nothing was written.")
+
+
 @dataclass(frozen=True)
 class Interview:
     """What the setup session did in the pane this run put it in.
@@ -164,10 +182,13 @@ class Interview:
     `ran` is reported by the interview itself, not inferred by the caller from
     the fact that it was asked for: while a Pi session holds that pane the focus
     belongs to it, so `init` must not move the view away when it exits.
+    `refused` is the reason nothing was written, when the skeleton this command
+    was about to write could not be accepted.
     """
 
     ran: bool = False
     pending: tuple[str, ...] = ()
+    refused: str | None = None
 
 
 def _empty_fields_line(key: str, tab: dict) -> str:
@@ -327,6 +348,11 @@ def start_interview(candidates,
                                   own_tab_id=own_tab_id)
         if not tabs:
             return Interview(pending=tuple(unfilled_roles()))
+        # Antes de escribir nada: un agents.json que el loader rechaza solo mueve
+        # el fallo unas líneas más abajo, después de haber dejado el fichero.
+        refusal = _orchestrator_refusal(tabs)
+        if refusal is not None:
+            return Interview(refused=refusal)
         write_default_config(tabs)
         say(f"Configuration skeleton created: {project.CONFIG_FILE}")
     skeleton_tabs = json.loads(
@@ -392,6 +418,9 @@ def init(plain: bool = False, as_json: bool = False) -> int:
     if (not project.CONFIG_FILE.exists() or pending) and not plain \
             and sys.stdin.isatty() and sys.stdout.isatty():
         interviewed = start_interview(candidates, seen, say=say)
+        if interviewed.refused:
+            error(interviewed.refused)
+            return 1
         pending = list(interviewed.pending)
         # La entrevista acaba de escribir las propuestas: hay que releerlas.
         interviewed_sessions = proposed_sessions()

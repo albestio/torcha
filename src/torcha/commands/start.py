@@ -23,6 +23,11 @@ from ..output import log, note
 from ..registry import load_registry, save_registry
 
 
+# The same sentence in both launch paths: `bootstrap: none` means no argv, and a
+# tab opened without one is a bare shell, never a session.
+BOOTSTRAP_DISABLED = "bootstrap is disabled in agents.json"
+
+
 def _find_terminal(space: dict, tab_id_value: str | None,
                    terminal_id: str | None) -> dict | None:
     tab = next((t for t in tabs_of(space) if tab_id(t) == tab_id_value), None)
@@ -109,18 +114,26 @@ def _stale_bootstrap(key: str, config: dict) -> str | None:
 
 
 def _recreate(key: str, entry: dict, config: dict, space: str,
-              fresh: bool = False, known_ids: set[str] | None = None) -> dict | None:
+              fresh: bool = False,
+              known_ids: set[str] | None = None
+              ) -> tuple[dict | None, str | None]:
     """Rebuild a tab that was closed, resuming its session unless `fresh`.
 
     This is the accident path: the tab is gone, so there is nothing to resume in
     place. Recreating it with the old session id brings the conversation back,
     which is not what a deliberate handoff does; `--fresh` is the explicit way to
     start another conversation instead.
+
+    The second value is the reason nothing was created, when there is one. With
+    `bootstrap: none` there is no argv, and a tab opened without one is a bare
+    shell that `wait_for_agent` can only report as an agent that never appeared.
     """
     session_id = str(uuid.uuid4()) if fresh else (
         entry.get("session_id") or str(uuid.uuid4()))
     argv = pi_argv(config, {"key": key}, session_id)
-    return _create_tab(key, entry, config, space, argv, session_id, known_ids)
+    if argv is None:
+        return None, BOOTSTRAP_DISABLED
+    return _create_tab(key, entry, config, space, argv, session_id, known_ids), None
 
 
 def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
@@ -169,7 +182,12 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
                 failed += 1
                 continue
             previous_session = entry.get("session_id")
-            rebuilt = _recreate(key, entry, config, wanted, fresh, known_ids)
+            rebuilt, reason = _recreate(key, entry, config, wanted, fresh,
+                                        known_ids)
+            if reason is not None:
+                note(f"{key}: {reason}.")
+                failed += 1
+                continue
             if rebuilt is None:
                 note(f"{key}: the tab could not be recreated.")
                 failed += 1
@@ -206,7 +224,7 @@ def start(role: str | None = None, fresh: bool = False, timeout: float = 60.0,
         resumed = not fresh and entry.get("session_id") == session_id
         argv = pi_argv(config, {"key": key}, session_id)
         if argv is None:
-            note(f"{key}: bootstrap is disabled in agents.json.")
+            note(f"{key}: {BOOTSTRAP_DISABLED}.")
             skipped += 1
             continue
         stale = _stale_bootstrap(key, config)

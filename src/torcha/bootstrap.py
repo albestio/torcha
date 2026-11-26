@@ -40,7 +40,11 @@ def bootstrap_text(item: dict[str, str], mode: str) -> str:
             "",
             f"2. Read your latest handoff: the newest file in "
             f"`.torcha/handoffs/{item['key']}/`. It is the state your previous",
-            "   session left. If there is none, say so and continue.",
+            "   session left. If there is none, say so and continue. This document",
+            "   is read here, at the start of a session; a handoff is written only",
+            "   when this session is about to be replaced by its successor, not at",
+            "   the end of a working day, and 'save the session' means memory, not",
+            "   a handoff.",
             "",
             "3. Validate that handoff against the repository before trusting it:",
             "   compare its `git.head` with `git rev-parse HEAD`. If HEAD moved, the",

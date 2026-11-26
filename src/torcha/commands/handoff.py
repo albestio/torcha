@@ -256,14 +256,15 @@ def _swap(key: str, entry: dict, config: dict, registry: dict, timeout: float,
     return []
 
 
-def _prepared(key: str) -> Path | None:
-    """The newest handoff for a role that already validates and is still prepared."""
+def _prepared_documents(key: str) -> list[Path]:
+    """The prepared handoffs for a role that validate, newest first."""
     directory = project.TORCHA_DIR / "handoffs" / key
     if not directory.is_dir():
-        return None
+        return []
     newest_first = sorted(directory.glob("*.json"),
                           key=lambda item: (item.stat().st_mtime_ns, item.name),
                           reverse=True)
+    eligible: list[Path] = []
     for path in newest_first:
         try:
             data = load_handoff(path)
@@ -272,6 +273,20 @@ def _prepared(key: str) -> Path | None:
         if data.get("status") != "prepared":
             continue
         if not validate_handoff(data, project_name=project.PROJECT_NAME, agent_id=key):
+            eligible.append(path)
+    return eligible
+
+
+def _prepared(key: str) -> Path | None:
+    """The newest handoff for a role that validates and whose head still holds.
+
+    The head is compared with the same function `_existing_handoff` uses: a
+    document that declares a commit the repository has moved past is not valid
+    for skipping a role either, or the two paths that read this directory would
+    disagree about what "valid" means.
+    """
+    for path in _prepared_documents(key):
+        if not _head_problems(path):
             return path
     return None
 
@@ -284,10 +299,9 @@ def _existing_handoff(key: str) -> tuple[Path | None, list[str]]:
     here: a file that stopped being `prepared`, or that names another agent or
     project, is not eligible, whatever it said when it was written.
     """
-    path = _prepared(key)
-    if path is None:
-        return None, []
-    return path, _head_problems(path)
+    for path in _prepared_documents(key):
+        return path, _head_problems(path)
+    return None, []
 
 
 def run(role: str | None = None, all_roles: bool = False, swap: bool = False,

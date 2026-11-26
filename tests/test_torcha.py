@@ -533,6 +533,18 @@ def test_recover_prompt_reads_the_handoff_first(project):
     assert text.index("git rev-parse HEAD") < text.index("mem_search")
 
 
+def test_recover_prompt_says_when_a_handoff_is_written(project):
+    """The bootstrap states both halves: reading one is not writing one."""
+    text = project.module.bootstrap_text(TABS[0], "recover")
+    flat = " ".join(text.split())
+    assert "replaced by its successor" in flat
+    assert "not at the end of a working day" in flat
+    assert "means memory" in flat
+    # `greet` no gana la frase: el arranque no habla de handoffs.
+    greet = project.module.bootstrap_text(TABS[0], "greet")
+    assert "replaced by its successor" not in greet
+
+
 def test_config_rejects_pi_executable_with_arguments(project):
     (project.root / ".torcha" / "agents.json").write_text(
         json.dumps({"pi": {"executable": "pi --model x"}, "tabs": TABS}))
@@ -2087,6 +2099,24 @@ def test_start_skips_a_role_with_the_bootstrap_disabled(project):
     assert project.options_for("tab.new") == []
 
 
+def test_start_recreate_refuses_a_role_with_the_bootstrap_disabled(
+        project, capsys):
+    """Con `bootstrap: none` no hay argv: una tab sin `--argv` es un shell vacío."""
+    (project.root / ".torcha" / "agents.json").write_text(
+        json.dumps({"pi": {"executable": "pi", "bootstrap": "none"},
+                    "tabs": TABS}))
+    start_registry(project)
+    registry_before = project.registry()
+    project.state.write_text(json.dumps(
+        {"spaces": [a_space_without_the_role(project)], "calls": []}))
+
+    assert project.module.start(timeout=0.2, interval=0.01, recreate=True) == 1
+
+    assert "bootstrap is disabled in agents.json" in capsys.readouterr().err
+    assert project.options_for("tab.new") == []       # no se crea nada
+    assert project.registry() == registry_before      # el registro no cambia
+
+
 def test_start_refuses_a_stale_bootstrap_file_and_launches_nothing(project, capsys):
     """S16: the file wins. Editing agents.json does not rewrite the prompt."""
     start_registry(project)
@@ -2860,6 +2890,25 @@ def test_a_role_with_a_valid_handoff_is_skipped(project, monkeypatch, capsys):
     assert "skipped" in capsys.readouterr().out
 
 
+def test_a_handoff_the_repository_moved_past_does_not_skip_the_role(
+        project, monkeypatch, capsys):
+    """`_prepared` compares git.head too: the same rule `--use-existing` uses."""
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch, head=MOVED)
+    document = reusable_handoff(project, head=HEAD)
+    before = document.read_text()
+    sent = record_sends(project, monkeypatch)
+
+    # Sin --force ni --swap, un documento que valida hace que la role se salte.
+    assert project.module.handoff_command.run(
+        role="orchestrator", timeout=0.0, interval=0.01) == 1
+
+    assert "skipped" not in capsys.readouterr().out
+    assert sent and ".torcha/handoffs/orchestrator" in sent[0]   # se pide otro
+    assert document.read_text() == before             # el rancio no se toca
+
+
 def test_a_busy_agent_is_reported_as_busy_not_as_wrong(project, monkeypatch, capsys):
     handoff_registry(project)
     seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
@@ -3141,7 +3190,11 @@ def test_the_prepared_lookup_breaks_a_tie_by_name(project, monkeypatch):
     has a document, so the tie-break decides which document that role has. The
     two documents share an `st_mtime_ns` and the glob is forced to yield the
     lower name first: a lookup keyed only on the mtime returns it.
+
+    The repository is pinned to the head both documents declare: `_prepared`
+    compares it, and a document the repository moved past is not eligible.
     """
+    pinned_repository(project, monkeypatch)
     low = reusable_handoff(
         project, minutes=5, handoff_id="22222222-2222-4222-8222-222222222222")
     high = reusable_handoff(
@@ -3742,6 +3795,35 @@ def test_the_skeleton_keeps_the_live_names_with_the_orchestrator_first(project):
     assert [tab["name"] for tab in skeleton] == ["Senior Orchestrator", "Scout"]
     assert [tab["key"] for tab in skeleton] == ["orchestrator", "scout"]
     assert [tab["role"] for tab in skeleton] == ["", ""]
+
+
+def test_init_refuses_a_skeleton_with_no_orchestrator_first(project, monkeypatch,
+                                                            capsys):
+    """Sin orquestador primero el fichero se escribiría y el loader lo rechazaría."""
+    (project.root / ".torcha" / "agents.json").unlink()
+    folder = str(project.root)
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": folder, "active": True,
+        "tabs": [role_tab(1, "Senior Orchestrator", folder),
+                 role_tab(2, "Scout", folder),
+                 role_tab(3, "Auditor", folder)]}], "calls": []}))
+    # La única tab que nombra el rol coordinador es la que ejecuta el comando.
+    monkeypatch.setattr(project.module.init_module, "_own_tab",
+                        lambda: {"id": "tb-01", "name": "Senior Orchestrator"})
+    monkeypatch.setattr(project.module.init_module.sys.stdin, "isatty",
+                        lambda: True)
+    monkeypatch.setattr(project.module.init_module.sys.stdout, "isatty",
+                        lambda: True)
+    monkeypatch.setattr(project.module.init_module, "_run_interview",
+                        lambda path, exe: 0)
+
+    assert project.module.init() == 1
+
+    err = capsys.readouterr().err
+    assert "orchestrator" in err
+    assert "The tab running this command cannot be a role" in err
+    assert "a tab that is not part of the team" in err
+    assert not (project.root / ".torcha" / "agents.json").exists()
 
 
 # --- a named tab whose agent died is not lost in silence --------------------
@@ -4945,3 +5027,21 @@ def test_each_shipped_skill_states_the_rules_it_was_written_for(project):
                  "Write a handoff nobody asked for",
                  "Say what you saw"):
         assert rule in team, f"the team skill stopped saying: {rule}"
+
+
+def test_the_repository_does_not_track_a_runtime_data_directory():
+    """El repo es la herramienta, no un proyecto adoptado.
+
+    Esta comprobación habría fallado en el commit del renombrado: el barrido
+    cambió las reglas del `.gitignore` de `.agentorch/` a `.torcha/` y el mismo
+    commit, con `git add -A`, publicó el estado de máquina.
+    """
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git is not available")
+
+    tracked = subprocess.run([git, "ls-files"], cwd=str(REPO_ROOT),
+                             capture_output=True, text=True, check=True).stdout
+    offenders = [line for line in tracked.splitlines()
+                 if line.startswith((".torcha/", ".agentorch/"))]
+    assert offenders == [], f"runtime state is tracked: {offenders}"
