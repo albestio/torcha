@@ -45,9 +45,9 @@ Observable: `CHANGELOG.md` has the entry; the packaging test looks for
 
 | ID | Specs | State | Commit | Task |
 | --- | --- | --- | --- | --- |
-| R1 | S1 | pending | - | Move the package and the test file, sweep the three spellings, fix `pyproject`, and keep the suite green. |
-| R2 | S2, S3 | pending | - | `torcha migrate` plus the refusal guard, and the marker that accepts `Torcha`. |
-| R3 | S4 | pending | - | Release 0.5.0: changelog, reinstall, and the two real projects verified. |
+| R1 | S1 | done | `d7e6d13` | Move the package and the test file, sweep the three spellings, fix `pyproject`, and keep the suite green. |
+| R2 | S2, S3 | done | `5bc3807` | `torcha migrate` plus the refusal guard, and the marker that accepts `Torcha`. |
+| R3 | S4 | done | `e4a47eb`, tag `v0.5.0` | Release 0.5.0: changelog, reinstall, and the two real projects verified. |
 
 ## Log
 
@@ -58,6 +58,8 @@ Observable: `CHANGELOG.md` has the entry; the packaging test looks for
 `torcha migrate`, copying and verifying, never automatically;
 (b) "Renombrar y reescribir todo" — the v2 specification and this project's
 feature document are renamed and their mentions rewritten, rather than archived.
+
+**L4** (closing note, 2026-11-26): the rename is done and published. `main` and `v0.5.0` are on GitHub, both real projects migrated, and `tabcabin`'s stranded handoff —written after the migration into the old directory— was recovered by copying it before anyone touched `.agentorch/`. The suite moved from 282 to 280 tests when seven assertions that could not catch a regression were removed, and CI now runs 3.10 and 3.14 on a push and the whole matrix on a pull request.
 
 **L3** (risk recorded at planning time): S16 makes the rename a stop, not a
 silent upgrade. The bootstrap file on disk in every adopted project holds the old
