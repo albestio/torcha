@@ -480,7 +480,16 @@ def init(plain: bool = False, as_json: bool = False) -> int:
             # que el humano no ve. Se reutiliza el `ls` que este comando ya leyó,
             # así que avisar no cuesta ningún probe; `seen` evita que otra ruta lo
             # repita en la misma ejecución.
-            report_tabs_without_agent(inspect_space(space, candidates), None, seen)
+            live_tabs = inspect_space(space, candidates)
+            report_tabs_without_agent(live_tabs, None, seen)
+            # El nombre de la tab se pone aquí también, no solo cuando hay
+            # entrevista: si el comando reconcilia sin preguntar nada, la tab
+            # seguía llamándose como Herdr la nombró y no había forma de
+            # identificarla. `_mark_setup_tab` no toca tabs de equipo y no
+            # repite el renombrado.
+            own = _own_tab()
+            team_ids = {tab.tab_id for tab in role_tabs(live_tabs) if tab.tab_id}
+            _mark_setup_tab(own, team_ids, say)
         else:
             # 2. Crear el space con la primera tab (Orquestador).
             say("No space is associated with this folder. Creating one...")

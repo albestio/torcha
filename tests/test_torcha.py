@@ -5045,3 +5045,61 @@ def test_the_repository_does_not_track_a_runtime_data_directory():
     offenders = [line for line in tracked.splitlines()
                  if line.startswith((".torcha/", ".agentorch/"))]
     assert offenders == [], f"runtime state is tracked: {offenders}"
+
+
+def test_init_names_its_own_tab_even_when_there_is_nothing_to_interview(
+        project, monkeypatch, capsys):
+    """La tab desde la que se ejecuta queda identificable aunque no haya entrevista.
+
+    Antes solo se renombraba cuando había roles que preguntar, así que un `init`
+    que solo reconcilia dejaba la tab con el nombre que Herdr le dio.
+    """
+    (project.root / ".torcha").mkdir(parents=True, exist_ok=True)
+    (project.root / ".torcha/agents.json").write_text(json.dumps({
+        "pi": {"executable": "pi", "bootstrap": "greet"},
+        "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                  "role": "Coordinates.", "instructions": "Do not push."}],
+    }))
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": str(project.root), "active": True,
+        "tabs": [
+            {"id": "tb1", "name": "Orquestador", "active": True,
+             "terminals": [{"terminal": "t1", "pane": "p1",
+                            "cwd": str(project.root), "app": "pi",
+                            "status": "idle", "pid": 500}]},
+            {"id": "tb-own", "name": "7", "active": False,
+             "terminals": [{"terminal": "t2", "pane": "p2",
+                            "cwd": str(project.root), "app": None,
+                            "status": None, "pid": None}]},
+        ]}], "calls": []}))
+    monkeypatch.setattr(project.module.init_module, "_own_tab",
+                        lambda: {"id": "tb-own", "name": "7"})
+
+    assert project.module.init(plain=True) == 0
+
+    renames = project.options_for("tab.rename")
+    assert [(opts["id"], opts["name"]) for opts in renames] == [("tb-own", "Torcha")]
+    assert "Torcha" in capsys.readouterr().out
+
+
+def test_init_never_renames_a_team_tab(project, monkeypatch):
+    """Renombrar una tab de equipo destruiría el nombre con el que se adopta."""
+    (project.root / ".torcha").mkdir(parents=True, exist_ok=True)
+    (project.root / ".torcha/agents.json").write_text(json.dumps({
+        "pi": {"executable": "pi", "bootstrap": "greet"},
+        "tabs": [{"key": "orchestrator", "name": "Orquestador",
+                  "role": "Coordinates.", "instructions": "Do not push."}],
+    }))
+    project.state.write_text(json.dumps({"spaces": [{
+        "id": "sp01", "name": "proj", "folder": str(project.root), "active": True,
+        "tabs": [{"id": "tb1", "name": "Orquestador", "active": True,
+                  "terminals": [{"terminal": "t1", "pane": "p1",
+                                 "cwd": str(project.root), "app": "pi",
+                                 "status": "idle", "pid": 500}]}],
+    }], "calls": []}))
+    monkeypatch.setattr(project.module.init_module, "_own_tab",
+                        lambda: {"id": "tb1", "name": "Orquestador"})
+
+    assert project.module.init(plain=True) == 0
+
+    assert project.options_for("tab.rename") == []
