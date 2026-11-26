@@ -2216,6 +2216,8 @@ def test_rename_refuses_a_tab_that_no_longer_exists(project):
 
 
 def test_the_interview_prompt_carries_the_skeleton_keys(project):
+    # Contract lint on the artefact: it proves the prompt says this, not that an
+    # agent reads it and follows it. Do not count it as behavioural coverage.
     skeleton = [{"key": "orchestrator", "name": "Orquestador"},
                 {"key": "revisor", "name": "Revisor"}]
     payload = {"space": "proj", "tabs": [
@@ -2553,6 +2555,8 @@ def test_instructions_rejects_a_shape_it_cannot_use(project):
 
 
 def test_the_skill_asks_one_question_at_a_time(project):
+    # Contract lint on the artefact: it proves the skill says this, not that an
+    # agent reads it and follows it. Do not count it as behavioural coverage.
     text = project.module.init_module.SETUP_SKILL.read_text(encoding="utf-8")
     assert "One question at a time" in text
     assert "Already waiting for a reply" in text
@@ -2960,6 +2964,25 @@ def record_sends(project, monkeypatch):
     return sent
 
 
+def force_glob_order(monkeypatch, directory, names):
+    """Make `Path.glob` enumerate one directory in this exact order.
+
+    Two documents can share a modification time, and then the winner is decided
+    by the name. Left to the filesystem, whether a name-only tie-break is really
+    there depends on the machine: this pins the order every run.
+    """
+    real_glob = Path.glob
+
+    def ordered(self, *args, **kwargs):
+        found = list(real_glob(self, *args, **kwargs))
+        if self == directory:
+            rank = {name: index for index, name in enumerate(names)}
+            found.sort(key=lambda path: rank.get(path.name, len(rank)))
+        return iter(found)
+
+    monkeypatch.setattr(Path, "glob", ordered)
+
+
 def test_use_existing_swaps_with_the_document_on_disk_without_asking(
         project, monkeypatch, capsys):
     """Reutilizar ahorra el turno: ni RELEVO ni documento reescrito."""
@@ -3110,6 +3133,61 @@ def test_reuse_skips_an_ineligible_newer_document_for_a_valid_older_one(
     assert "reusing the handoff written 5h ago" in capsys.readouterr().out
     assert newer.read_text() == newer_before
     assert older.exists()
+
+
+def test_use_existing_consumes_the_newest_eligible_document(
+        project, monkeypatch, capsys):
+    """The newest document is the one the swap spends.
+
+    The older one is not touched at all: same bytes, still `prepared`.
+    """
+    handoff_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    pinned_repository(project, monkeypatch)
+    now = time.time()
+    older = reusable_handoff(
+        project, minutes=300, mtime=now - 3600,
+        handoff_id="22222222-2222-4222-8222-222222222222")
+    newer = reusable_handoff(
+        project, minutes=5, mtime=now,
+        handoff_id="33333333-3333-4333-8333-333333333333")
+    older_before = older.read_text()
+    sent = record_sends(project, monkeypatch)
+
+    assert project.module.handoff_command.run(
+        role="orchestrator", use_existing=True, timeout=0.2, interval=0.01,
+        swap=True) == 0
+
+    out = capsys.readouterr().out
+    assert sent == []
+    assert "reusing the handoff written 5m ago" in out
+    assert newer.name in out                 # el que se reutilizó, por su nombre
+    assert json.loads(newer.read_text())["status"] == "consumed"
+    assert older.read_text() == older_before             # el viejo, byte a byte
+    statuses = [json.loads(path.read_text())["status"]
+                for path in newer.parent.glob("*.json")]
+    assert statuses.count("consumed") == 1                # exactamente uno
+
+
+def test_the_prepared_lookup_breaks_a_tie_by_name(project, monkeypatch):
+    """A tie on the modification time cannot depend on the enumeration order.
+
+    `_prepared` is what plain `handoff run` consults to skip a role that already
+    has a document, so the tie-break decides which document that role has. The
+    two documents share an `st_mtime_ns` and the glob is forced to yield the
+    lower name first: a lookup keyed only on the mtime returns it.
+    """
+    low = reusable_handoff(
+        project, minutes=5, handoff_id="22222222-2222-4222-8222-222222222222")
+    high = reusable_handoff(
+        project, minutes=5, handoff_id="33333333-3333-4333-8333-333333333333")
+    stamp = 1_700_000_000_000_000_000
+    for path in (low, high):
+        os.utime(path, ns=(stamp, stamp))
+    assert low.stat().st_mtime_ns == high.stat().st_mtime_ns
+    force_glob_order(monkeypatch, low.parent, [low.name, high.name])
+
+    assert project.module.handoff_command._prepared("orchestrator") == high
 
 
 def test_force_and_use_existing_together_are_refused(project, monkeypatch, capsys):
@@ -3734,16 +3812,20 @@ def test_a_named_tab_without_an_agent_is_reported_once_with_a_way_forward(
 
 def test_only_the_named_tab_without_an_agent_is_reported(
         project, monkeypatch, capsys):
-    """The setup marker, an unnamed tab and the caller's own tab stay silent."""
+    """The setup marker, an unnamed tab and the caller's own tab stay silent.
+
+    All of them are also agent-less, on purpose: a tab that does run an agent is
+    never idle, so it would stay silent even if the exclusions were gone.
+    """
     (project.root / ".torcha/agents.json").unlink()
     folder = str(project.root)
     project.state.write_text(json.dumps({"spaces": [{
         "id": "sp01", "name": "proj", "folder": folder, "active": True,
         "tabs": [role_tab(1, "Senior Orchestrator", folder),
                  role_tab(2, "Coach", folder, app=None),
-                 role_tab(3, "Torcha", folder),
+                 role_tab(3, "Torcha", folder, app=None),
                  role_tab(4, "7", folder, app=None),
-                 role_tab(5, "Scratch", folder)]}], "calls": []}))
+                 role_tab(5, "Scratch", folder, app=None)]}], "calls": []}))
     monkeypatch.setattr(project.module.init_module, "_own_tab",
                         lambda: {"id": "tb-05", "name": "Scratch"})
     monkeypatch.setattr(project.module.init_module, "_run_interview",
@@ -4540,6 +4622,22 @@ def test_the_catch_up_says_what_to_do_without_a_handoff_or_engram(project):
     assert "If there is nothing" in text     # nothing in Engram for this role
 
 
+def test_recover_names_the_project_it_was_run_in(project):
+    """The project in the message is the one measured here, not a constant.
+
+    `"proj" in text` would also match the word "project", so the whole phrase
+    is compared against the name the fixture's own `project.PROJECT_NAME` holds.
+    """
+    recover_registry(project)
+    seed_live(project, [live_tab("tb1", "Orquestador", "t1", pid=500)])
+    measured = project.module.paths.PROJECT_NAME
+
+    assert project.module.recover("orchestrator") == 0
+
+    text = sent(project)[0][1]
+    assert f"the project `{measured}`" in text
+
+
 def test_the_catch_up_names_the_project_and_the_role(project):
     text = catch_up_text(project)
 
@@ -4889,11 +4987,13 @@ def test_the_wheel_carries_the_files_a_launch_depends_on(tmp_path):
 
 
 def test_two_handoffs_written_at_the_same_instant_have_a_stable_winner(
-        project):
+        project, monkeypatch):
     """El "más reciente" no puede depender del orden del sistema de ficheros.
 
     Dos documentos con la misma marca de tiempo eligen siempre el mismo, aquí y
-    en cualquier versión de Python: el nombre desempata.
+    en cualquier versión de Python: el nombre desempata. El orden del glob se
+    fuerza —el que devuelve este sistema no significa nada—, así que un
+    desempate que solo mire la marca falla aquí, no solo en otra máquina.
     """
     directory = project.root / ".torcha" / "handoffs" / "orchestrator"
     directory.mkdir(parents=True)
@@ -4901,7 +5001,25 @@ def test_two_handoffs_written_at_the_same_instant_have_a_stable_winner(
         path = directory / name
         path.write_text(json.dumps({"status": "prepared", "objective": name}))
         os.utime(path, ns=(1_700_000_000_000_000_000,) * 2)
+    force_glob_order(monkeypatch, directory, ["aaa.json", "zzz.json"])
 
     chosen = project.module.handoff.newest_handoff("orchestrator")
 
     assert chosen is not None and chosen.name == "zzz.json"
+
+
+def test_the_team_skill_forbids_a_handoff_nobody_asked_for(project):
+    """Contract lint: the shipped skill states the rule the agents read.
+
+    It cannot prove an agent obeys it — a spawned Pi is not deterministic — but it
+    fails if a rewrite drops the rule whose absence let a real agent invent a
+    handoff at the end of a working day.
+    """
+    argv = project.module.pi_argv({"pi": {"executable": "pi", "bootstrap": "greet"}},
+                                  {"key": "orchestrator"}, "abc")
+    text = " ".join(Path(argv[2]).read_text(encoding="utf-8").split())
+
+    assert "Write one only when you are asked to" in text
+    assert "mean Engram, not a handoff" in text
+    assert "Write a handoff nobody asked for" in text
+    assert "Say what you saw" in text

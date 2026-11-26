@@ -1,7 +1,7 @@
 ---
 name: torcha-team
 description: >
-  Act as one role of an torcha team: catch up from your newest handoff,
+  Act as one role of a torcha team: catch up from your newest handoff,
   Engram and the repository, then hand over by writing and validating a handoff
   document that someone outside your own tab swaps. Loaded in every torcha
   session.
@@ -51,9 +51,20 @@ and whenever the human asks where your role stands.
 
 ## Hand over
 
-You cannot swap yourself either: `torcha handoff run <role> --swap` refuses
-the terminal that runs the command, because the swap closes that tab. Do not run
-it, and never claim a relief you did not receive.
+A handoff is written for one reason only: a session is about to be replaced by
+a successor because its context is full. It is not a diary and it is not a
+checkpoint of a working day.
+
+**Write one only when you are asked to**, by the human or by the orchestrator,
+or when you are actually being relieved. Never on your own initiative — and never
+because a session is ending. "Save the session", "save your memories" or "we
+continue tomorrow" mean Engram, not a handoff: a conversation that resumes needs
+memory, a session that gets replaced needs a handoff, and those are different
+things. If you are unsure which one was asked for, ask.
+
+The document itself is created by torcha, not by you: `torcha handoff run <role>`
+measures the repository and writes the shape, and it refuses the terminal that
+runs it, because a swap closes that tab.
 
 When you are asked for a handoff, torcha has already created the document and
 measured its `git` block. Fill it in place, in the documented shape:
@@ -97,6 +108,10 @@ human or to the orchestrator, not to you.
 
 - Run `herdr-app` or `hc`.
 - Rename, close, move or create a tab.
+- Write a handoff nobody asked for. Not at the end of a session, not because the
+  next session will read one, not because it is cheap.
+- Silence something you do not understand — a second data directory, a moved
+  path — by adding it to a `.gitignore` or ignoring it. Say what you saw.
 - Write the registry, the bootstrap files or `git` in a handoff.
 - Run `recover` or `handoff run --swap` against yourself.
 - Report a handoff as swapped, or a role as relieved, before someone outside

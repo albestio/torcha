@@ -54,3 +54,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Dev environment lock: CI installs from pyproject, and a lock nobody updates
+# pins yesterday.
+uv.lock
