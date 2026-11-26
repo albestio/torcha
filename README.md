@@ -4,8 +4,8 @@
 
 Give your coding agents a team, a memory and a handover.
 
-`torcha` bootstraps a team of [Pi](https://pi.dev) coding agents in Herdr
-workspaces.
+`torcha` bootstraps a team of [Pi](https://pi.dev) coding agents in
+[Herdr](https://herdr.dev) workspaces.
 
 `torcha init` prepares a workspace for the project in the current directory:
 it creates or recovers a Herdr space, creates the configured tabs, starts one Pi
