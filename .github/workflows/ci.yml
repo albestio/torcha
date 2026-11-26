@@ -25,10 +25,14 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      # 3.14 es el intérprete del desarrollo local: si no está aquí, la versión
-      # que de verdad se usa no la prueba nadie.
+      # Dos regímenes, porque el propósito de cada uno es distinto:
+      #  - en un push, los extremos: el suelo declarado (3.10) y el intérprete del
+      #    desarrollo (3.14), que es la versión que nadie más prueba;
+      #  - en un pull request, la matriz completa, porque es la última puerta
+      #    antes de que algo entre en main.
+      # La expresión elige la lista; el resto del job es idéntico.
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ${{ github.event_name == 'pull_request' && fromJSON('["3.10","3.11","3.12","3.13","3.14"]') || fromJSON('["3.10","3.14"]') }}
 
     steps:
       - uses: actions/checkout@v7
