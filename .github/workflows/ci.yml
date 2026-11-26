@@ -34,4 +34,21 @@ jobs:
           pip install -e ".[test]"
 
       - name: Test
-        run: python -m pytest -q
+        run: |
+          # `pipefail` porque `tee` devuelve su propio estado: sin esto un pytest
+          # en rojo pasaría por verde, que es exactamente el error que este
+          # workflow debe impedir.
+          set -o pipefail
+          python -m pytest -q -rs | tee pytest.log
+
+      - name: No test may be skipped
+        run: |
+          # Un test que se salta es una guarda que no corrió. El de empaquetado se
+          # salta sin `uv`, y entonces nada comprueba que las skills viajen dentro
+          # del paquete.
+          if grep -qE "[0-9]+ skipped" pytest.log; then
+            echo "::error::a test was skipped; a skip hides a guard that did not run"
+            grep -E "skipped" pytest.log
+            exit 1
+          fi
+          echo "no test was skipped"
