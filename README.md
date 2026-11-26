@@ -4,8 +4,13 @@
 
 Give your coding agents a team, a memory and a handover.
 
-`torcha` bootstraps a team of [Pi](https://pi.dev) coding agents in
-[Herdr](https://herdr.dev) workspaces.
+`torcha` coordinates a team of [Pi](https://pi.dev) coding agents living in
+[Herdr](https://herdr.dev) tabs: it records who they are, brings them up, hands
+one over to a successor, and reports what state each is in.
+
+It is **agnostic about the model** — Pi can point at Anthropic, OpenAI, a local
+server or anything else, and torcha neither reads nor configures that — and it is
+coupled to **one program**: the `pi` binary and the flags it accepts.
 
 `torcha init` prepares a workspace for the project in the current directory:
 it creates or recovers a Herdr space, creates the configured tabs, starts one Pi
@@ -297,12 +302,21 @@ Because `drift` reports what `git status` says, keep torcha's runtime state out
 of the tree — this repository ignores `.torcha/handoffs/` and
 `.torcha/registry.json` — or every role will read as dirty.
 
-## What it does not do
+## What it is not
 
-- It does not start Pi in tabs that already existed; only in tabs it creates.
-- It does not write handoffs, edit context or replace sessions; `status` only
-  reads them.
-- It is not published on PyPI.
+- **Not a runner for other agent CLIs.** It drives `pi`. Claude Code and Codex
+  are different programs with different flags and their own session stores; using
+  them would need an adapter, and none ships today.
+- **Not a model or provider manager.** Choosing a model, holding a key and
+  talking to an API are Pi's job. torcha launches a process and reads what that
+  process leaves on disk.
+- **Not a terminal multiplexer.** Herdr owns tabs, panes and focus; torcha asks
+  it to create, close and select things.
+- **Not a memory of its own.** Durable knowledge belongs to Engram; torcha keeps
+  the registry, the bootstrap files and the handoff documents, nothing else.
+- **Not automatic about migrations.** A project whose data still sits in the old
+  directory is refused with instructions, never migrated on the quiet.
+- **Not on PyPI.** Install it from the repository.
 
 ## Development
 
