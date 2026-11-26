@@ -9,13 +9,26 @@ on:
     branches: [master, main]
   pull_request:
 
+# El workflow solo lee el repositorio: nada de escribir, publicar ni comentar.
+permissions:
+  contents: read
+
+# Un push nuevo sobre la misma rama hace obsoleto el anterior: se cancela en vez
+# de pagar dos veces el mismo resultado.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
+      # 3.14 es el intérprete del desarrollo local: si no está aquí, la versión
+      # que de verdad se usa no la prueba nadie.
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +45,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
+
+      - name: The installed command works
+        # Ningún test ejecuta el script de consola: importa el paquete. Un entry
+        # point roto —como el que el renombrado podía dejar— pasaría inadvertido.
+        run: |
+          torcha --help > /dev/null
+          installed="$(torcha --version | awk '{print $2}')"
+          expected="$(grep -oE '\"[0-9]+\.[0-9]+\.[0-9]+\"' src/torcha/__init__.py | tr -d '\"')"
+          echo "script: $installed | source: $expected"
+          test "$installed" = "$expected"
 
       - name: Test
         run: |
